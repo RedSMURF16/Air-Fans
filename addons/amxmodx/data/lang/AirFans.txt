@@ -1,0 +1,63 @@
+[en] -- RedSMURF
+FAN_CHAT_TAG                     = ^4[AIR FANS]^1
+FAN_CHAT_LIMIT                   = You've reached the maximum number of Fans ^4%d
+FAN_CHAT_NO_FAN                  = There are no Fans available
+FAN_CHAT_CREATE_NEW              = ^3%s ^1created
+FAN_CHAT_REMOVE_CURRENT          = ^3%s ^1removed
+FAN_CHAT_REMOVE_ALL              = All Fans removed
+FAN_CHAT_SAVE                    = Fan data saved in ^4%s
+FAN_CHAT_SHOW_CURRENT            = ^3%s ^1is %L
+FAN_CHAT_SHOW_ALL_SHOWN          = All Fans are now Shown
+FAN_CHAT_SHOW_ALL_HIDDEN         = All Fans are now Hidden
+FAN_CHAT_STATUS_CURRENT          = ^3%s ^1is %L
+FAN_CHAT_STATUS_ALL_ENABLED      = All Fans are now Enabled
+FAN_CHAT_STATUS_ALL_DISABLED     = All Fans are now Disabled
+
+FAN_CHAT_SHOWN                   = Shown
+FAN_CHAT_HIDDEN                  = Hidden
+FAN_CHAT_ENABLED                 = Enabled
+FAN_CHAT_DISABLED                = Disabled
+
+FAN_NAV_NEXT                     = Next
+FAN_NAV_BACK                     = Back
+FAN_ON                           = \y[ON]
+FAN_OFF                          = \r[OFF]
+FAN_SHOWN                        = \y[SHOWN]
+FAN_HIDDEN                       = \r[HIDDEN]
+FAN_ENABLED                      = \y[ENABLED]
+FAN_DISABLED                     = \r[DISABLED]
+FAN_ROTATE_PITCH                 = \r[PITCH]
+FAN_ROTATE_YAW                   = \y[YAW]
+FAN_ROTATE_ROLL                  = \d[ROLL]
+FAN_ROTATE_SMALL                 = \d[SMALL]
+FAN_ROTATE_MID                   = \d[MEDIUM]
+FAN_ROTATE_LARGE                 = \d[LARGE]
+
+FAN_MENU_TITLE                   = \dAir Fans - Version \y%s
+FAN_MENU_TITLE_PAGE              = \yPage:\r
+FAN_ROOT_CREATE                  = Create Fan
+FAN_ROOT_REMOVE                  = Remove Fan
+FAN_ROOT_SAVE                    = Save data
+FAN_ROOT_SHOW                    = Visibility settings
+FAN_ROOT_STATUS                  = Status settings
+FAN_ROOT_NOCLIP                  = Status noclip %L
+FAN_ROOT_GODMODE                 = Status godmode %L
+FAN_ROOT_ROTATE                  = Adjust rotation
+
+FAN_REMOVE_CURRENT               = Remove Fan >> \y%s
+FAN_REMOVE_ALL                   = Remove all Fans
+
+FAN_SHOW_CURRENT                 = Show Fan >> %s%s %L
+FAN_SHOW_ALL_SHOW                = Show all Fans
+FAN_SHOW_ALL_HIDE                = Hide all Fans
+
+FAN_STATUS_CURRENT               = Enable Fan >> %s%s %L
+FAN_STATUS_ALL_ENABLE            = Enable all Fans
+FAN_STATUS_ALL_DISABLE           = Disable all Fans
+
+FAN_ROTATE_UP                    = Turn Up
+FAN_ROTATE_DOWN                  = Turn Down
+FAN_ROTATE_GROUND                = Set on ground >> %L
+FAN_ROTATE_MODE                  = Rotate Mode >> %L
+FAN_ROTATE_SIZE                  = Rotate Size >> %L
+FAN_ROTATE_PLACE                 = Place Fan
