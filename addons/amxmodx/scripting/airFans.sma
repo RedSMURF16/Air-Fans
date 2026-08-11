@@ -9,8 +9,8 @@
 *		None
 *
 *	Commands:
-*       say /pm                         "Opens the Air Fan menu."
-*       say_team /pm                    "Opens the Air Fan menu."
+*       say /af                         "Opens the Air Fan menu."
+*       say_team /af                    "Opens the Air Fan menu."
 *       af_reload                       "Reloads the configuration file."
 *
 *	Changelog:
@@ -48,7 +48,7 @@
 #endif
 
 #define MAX_ENT             32
-#define FAN_KEY             678123
+#define FAN_KEY             761202
 #define FAN_ARRAY_ITEM      pev_iuser1
 #define FAN_SEQ_SPIN        0
 #define MIN_FRAMERATE       0.1
@@ -152,6 +152,7 @@ enum _:MAIN_SETTINGS
     Float:SETTING_MAXS_LARGE[3],
     Float:SETTING_TRIGGER_SIZE[3],
     Float:SETTING_FRAMERATE_MULTIPLIER,
+    SETTING_MAX_TARGETS,
 
     bool:SETTING_FAN_LOAD,
     Float:SETTING_FAN_RANGE,
@@ -161,6 +162,7 @@ enum _:MAIN_SETTINGS
     Float:SETTING_OFFSET[2],
     Float:SETTING_OFFSET_STEP,
     SETTING_GHOST_ALPHA,
+    Float:SETTING_ROTATION_STEP,
 
     SETTING_SOUND_MENU_NAV[MAX_RESOURCE_PATH_LENGTH],
     SETTING_SOUND_MENU_REMOVE[MAX_RESOURCE_PATH_LENGTH],
@@ -318,8 +320,9 @@ new Array:g_aFan,
     Array:g_aFanConfig,
     g_eSettings[MAIN_SETTINGS],
     g_ePlayerData[MAX_PLAYERS + 1][PLAYER_DATA],
-    bool:g_bFileWasRead, bool:g_bExist, g_iActivePlayers,
+    bool:g_bFileWasRead, g_iActivePlayers,
     g_iFwdUpdateClientData, HamHook:g_iFwdSpawn, HamHook:g_iFwdPreThink, HamHook:g_iFwdKilled,
+    g_iFan, g_iFanConfig,
     g_iMaxPlayers
 
 new g_szRotateMode[][] = {"FAN_ROTATE_PITCH", "FAN_ROTATE_YAW", "FAN_ROTATE_ROLL"}
@@ -360,7 +363,7 @@ public plugin_precache()
 public plugin_end()
 {
     new eFan[FAN]
-    for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+    for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
         ArrayDestroy(eFan[FAN_SOUND])
@@ -395,11 +398,11 @@ public cmdReload(id, iLevel, iCmd)
 
 public eventRoundStart()
 {
-    if ( !ArraySize(g_aFan) )
+    if ( !g_iFan )
         return PLUGIN_HANDLED
 
     new eFan[FAN]
-    for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+    for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
         if ( !(eFan[FAN_FLAGS] & FLAG_SHOW) )
@@ -429,7 +432,7 @@ ReadFile()
             if ( is_user_connected(id))
                 UpdateData(id)
 
-        for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+        for ( new i = 0; i < g_iFan; i ++ )
         {
             ArrayGetArray(g_aFan, i, eFan)
             ArrayDestroy(eFan[FAN_SOUND])
@@ -479,7 +482,7 @@ ReadFile()
                     }
                     else
                     {
-                        if ( g_bExist )
+                        if ( g_iFanConfig )
                             ArrayPushArray(g_aFanConfig, eFan)
 
                         copy(eFan[FAN_NAME], charsmax(eFan[FAN_NAME]), szData)
@@ -499,7 +502,7 @@ ReadFile()
                         eFan[FAN_SOUND]               = ArrayClone(g_eSettings[SETTING_DEFAULT_SOUND])
 
                         iSection = SECTION_FAN
-                        g_bExist = true
+                        g_iFanConfig ++
                     }
                 }
                 else
@@ -570,6 +573,8 @@ ReadFile()
                             parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_TRIGGER_SIZE], charsmax(g_eSettings[SETTING_TRIGGER_SIZE]))
                         else if ( equali(szKey, "SETTING_FRAMERATE_MULTIPLIER") )
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FRAMERATE_MULTIPLIER], charsmax(g_eSettings[SETTING_FRAMERATE_MULTIPLIER]))
+                        else if ( equali(szKey, "SETTING_MAX_TARGETS") )
+                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAX_TARGETS], charsmax(g_eSettings[SETTING_MAX_TARGETS]))
                         else if ( equali(szKey, "SETTING_FAN_LOAD") )
                             parseSetting(DTYPE_BOOL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FAN_LOAD], charsmax(g_eSettings[SETTING_FAN_LOAD]))
                         else if ( equali(szKey, "SETTING_FAN_CHECK") )
@@ -584,6 +589,8 @@ ReadFile()
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET_STEP], charsmax(g_eSettings[SETTING_OFFSET_STEP]))
                         else if ( equali(szKey, "SETTING_GHOST_ALPHA") )
                             parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_GHOST_ALPHA], charsmax(g_eSettings[SETTING_GHOST_ALPHA]))
+                        else if ( equali(szKey, "SETTING_ROTATION_STEP") )
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_ROTATION_STEP], charsmax(g_eSettings[SETTING_ROTATION_STEP]))
                         else if ( equali(szKey, "SETTING_SOUND_MENU_NAV") )
                             parseSetting(DTYPE_STRING_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_SOUND_MENU_NAV], charsmax(g_eSettings[SETTING_SOUND_MENU_NAV]))
                         else if ( equali(szKey, "SETTING_SOUND_MENU_REMOVE") )
@@ -631,7 +638,7 @@ ReadFile()
         }
     }
 
-    if ( g_bExist )
+    if ( g_iFanConfig )
         ArrayPushArray(g_aFanConfig, eFan)
     else
         set_fail_state("No Fans were found in the configuration file.")
@@ -655,8 +662,8 @@ public client_disconnected(id)
         fanRemove(iItem)
     }
 
+    DisableForwards()
     g_ePlayerData[id][PDATA_FAN_GHOST]  = 0
-    g_ePlayerData[id][PDATA_FAN_ACTION] = false
     g_ePlayerData[id][PDATA_FAN_MENU]   = 0
 }
 
@@ -679,7 +686,6 @@ public fanMenu(id, iType)
     new szData[64], iMenu
     formatex(szData, charsmax(szData), "%L", id, "FAN_MENU_TITLE", PLUGIN_VERSION)
     iMenu = menu_create(szData, g_szMenuHandler[iType])
-
     switch( iType )
     {
         case MENU_ROOT:   { menuRoot(id, iMenu); }
@@ -754,7 +760,7 @@ public menuHandlerRoot(id, menu, item)
     {
         case ROOT_CREATE:
         {
-            if ( ArraySize(g_aFan) >= MAX_ENT )
+            if ( g_iFan >= MAX_ENT )
             {
                 client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_LIMIT", MAX_ENT)
 
@@ -769,7 +775,7 @@ public menuHandlerRoot(id, menu, item)
         }
         case ROOT_REMOVE:
         {
-            if ( !ArraySize(g_aFan) )
+            if ( !g_iFan )
             {
                 client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
 
@@ -788,7 +794,7 @@ public menuHandlerRoot(id, menu, item)
         }
         case ROOT_SHOW:
         {
-            if ( !ArraySize(g_aFan) )
+            if ( !g_iFan )
             {
                 client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
 
@@ -803,7 +809,7 @@ public menuHandlerRoot(id, menu, item)
         }
         case ROOT_STATUS:
         {
-            if ( !ArraySize(g_aFan) )
+            if ( !g_iFan )
             {
                 client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
 
@@ -833,7 +839,7 @@ public menuHandlerRoot(id, menu, item)
 public menuCreate(iMenu)
 {
     new eFan[FAN], szItem[64]
-    for ( new i = 0; i < ArraySize(g_aFanConfig); i ++ )
+    for ( new i = 0; i < g_iFanConfig; i ++ )
     {
         ArrayGetArray(g_aFanConfig, i, eFan)
 
@@ -895,7 +901,7 @@ public menuHandlerRemove(id, menu, item)
     {
         case REMOVE_NEXT:
         {
-            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= ArraySize(g_aFan) - 1 )
+            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= g_iFan - 1 )
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] ++
@@ -906,7 +912,7 @@ public menuHandlerRemove(id, menu, item)
         case REMOVE_BACK:
         {
             if ( g_ePlayerData[id][PDATA_FAN_MENU] <= 0 )
-                g_ePlayerData[id][PDATA_FAN_MENU] = ArraySize(g_aFan) - 1
+                g_ePlayerData[id][PDATA_FAN_MENU] = g_iFan - 1
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] --
 
@@ -923,12 +929,12 @@ public menuHandlerRemove(id, menu, item)
             client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_REMOVE_CURRENT", eFan[FAN_NAME])
             g_ePlayerData[id][PDATA_FAN_MENU] = 0
 
-            fanSound(id, ArraySize(g_aFan) > 0 ? SOUND_MENU_REMOVE : SOUND_MENU_NAV)
-            fanMenu(id, ArraySize(g_aFan) > 0 ? MENU_REMOVE : MENU_ROOT)
+            fanSound(id, g_iFan > 0 ? SOUND_MENU_REMOVE : SOUND_MENU_NAV)
+            fanMenu(id, g_iFan > 0 ? MENU_REMOVE : MENU_ROOT)
         }
         case REMOVE_ALL:
         {
-            while( ArraySize(g_aFan) )
+            while( g_iFan )
             {
                 ArrayGetArray(g_aFan, 0, eFan)
                 eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
@@ -1001,7 +1007,7 @@ public menuHandlerShow(id, menu, item)
     {
         case SHOW_NEXT:
         {
-            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= ArraySize(g_aFan) - 1 )
+            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= g_iFan - 1 )
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] ++
@@ -1012,7 +1018,7 @@ public menuHandlerShow(id, menu, item)
         case SHOW_BACK:
         {
             if ( g_ePlayerData[id][PDATA_FAN_MENU] <= 0 )
-                g_ePlayerData[id][PDATA_FAN_MENU] = ArraySize(g_aFan) - 1
+                g_ePlayerData[id][PDATA_FAN_MENU] = g_iFan - 1
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] --
 
@@ -1033,7 +1039,7 @@ public menuHandlerShow(id, menu, item)
         }
         case SHOW_ALL_SHOW:
         {
-            for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+            for ( new i = 0; i < g_iFan; i ++ )
             {
                 ArrayGetArray(g_aFan, i, eFan)
                 eFan[FAN_FLAGS] |= FLAG_SHOW
@@ -1048,7 +1054,7 @@ public menuHandlerShow(id, menu, item)
         }
         case SHOW_ALL_HIDE:
         {
-            for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+            for ( new i = 0; i < g_iFan; i ++ )
             {
                 ArrayGetArray(g_aFan, i, eFan)
                 eFan[FAN_FLAGS] &= ~FLAG_SHOW
@@ -1118,7 +1124,7 @@ public menuHandlerStatus(id, menu, item)
     {
         case STATUS_NEXT:
         {
-            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= ArraySize(g_aFan) - 1 )
+            if ( g_ePlayerData[id][PDATA_FAN_MENU] >= g_iFan - 1 )
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] ++
@@ -1129,7 +1135,7 @@ public menuHandlerStatus(id, menu, item)
         case STATUS_BACK:
         {
             if ( g_ePlayerData[id][PDATA_FAN_MENU] <= 0 )
-                g_ePlayerData[id][PDATA_FAN_MENU] = ArraySize(g_aFan) - 1
+                g_ePlayerData[id][PDATA_FAN_MENU] = g_iFan - 1
             else
                 g_ePlayerData[id][PDATA_FAN_MENU] --
 
@@ -1150,7 +1156,7 @@ public menuHandlerStatus(id, menu, item)
         }
         case STATUS_ALL_ENABLE:
         {
-            for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+            for ( new i = 0; i < g_iFan; i ++ )
             {
                 ArrayGetArray(g_aFan, i, eFan)
                 eFan[FAN_FLAGS] |= FLAG_ACTIVE
@@ -1165,7 +1171,7 @@ public menuHandlerStatus(id, menu, item)
         }
         case STATUS_ALL_DISABLE:
         {
-            for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+            for ( new i = 0; i < g_iFan; i ++ )
             {
                 ArrayGetArray(g_aFan, i, eFan)
                 eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
@@ -1247,7 +1253,7 @@ public menuHandlerRotate(id, menu, item)
         case ROTATE_UP:
         {
             pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
-            eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] -= 22.5
+            eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] -= g_eSettings[SETTING_ROTATION_STEP]
             if ( eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] < -180.0 ) eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] += 360.0
 
             set_pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
@@ -1259,7 +1265,7 @@ public menuHandlerRotate(id, menu, item)
         case ROTATE_DOWN:
         {
             pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
-            eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] += 22.5
+            eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] += g_eSettings[SETTING_ROTATION_STEP]
             if ( eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] > 180.0 ) eFan[FAN_ANGLES][g_ePlayerData[id][PDATA_ROTATE_MODE]] -= 360.0
 
             set_pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
@@ -1347,7 +1353,7 @@ public fanTask()
     new eFan[FAN], bool:bModified, Float:fCurrentTime
     fCurrentTime = get_gametime()
 
-    for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+    for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
         bModified = false
@@ -1426,10 +1432,11 @@ stock fanCreate(id, iItem)
     }
 
     fanSelect(eFan, TARGET_GHOST)
-    set_pev(iEnt, FAN_ARRAY_ITEM, ArraySize(g_aFan))
+    set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
     set_pev(iEnt, pev_impulse, FAN_KEY)
     set_pev(iEnt, pev_classname, g_szCN)
 
+    g_iFan ++
     ArrayPushArray(g_aFan, eFan)
     dllfunc(DLLFunc_Spawn, iEnt)
 }
@@ -1438,8 +1445,9 @@ public fanRemove(iItem)
 {
     new eFan[FAN]
     ArrayDeleteItem(g_aFan, iItem)
+    g_iFan --
 
-    for ( new i = iItem; i < ArraySize(g_aFan); i ++ )
+    for ( new i = iItem; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
         set_pev(eFan[FAN_ID], FAN_ARRAY_ITEM, i)
@@ -1459,7 +1467,7 @@ public saveData(id)
     if ( !iFile )
         return PLUGIN_HANDLED
 
-    for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+    for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
 
@@ -1670,9 +1678,8 @@ public fwdPreThink(id)
 
 public fwdKilled(id, iAttacker, bGib)
 {
-    g_ePlayerData[id][PDATA_FAN_ACTION] = false
+    DisableForwards()
     g_ePlayerData[id][PDATA_FAN_MENU]   = 0
-
     if ( g_ePlayerData[id][PDATA_FAN_GHOST] )
     {
         new eFan[FAN], iItem
@@ -1720,7 +1727,7 @@ stock fanCheck(id)
 
     iBest = -1
     fBestDist = g_eSettings[SETTING_FAN_CHECK]
-    for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+    for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
         xs_vec_sub(eFan[FAN_ORIGIN_START], fVec1, fVec3)
@@ -1810,9 +1817,7 @@ stock boxRotate(Float:fLocal[3], Float:fForward[3], Float:fRight[3], Float:fUp[3
 
 stock fanSetOffset(eFan[FAN])
 {
-    new Float:fGaps[6], Float:fVec1[3],
-        Float:fCurrentGap
-
+    new Float:fGaps[6], Float:fVec1[3], Float:fCurrentGap
     fGaps[0] = -eFan[FAN_MINS][0]
     fGaps[1] = eFan[FAN_MAXS][0]
     fGaps[2] = -eFan[FAN_MINS][1]
@@ -1940,8 +1945,8 @@ stock fanSetDelay(eFan[FAN])
 
 stock fanAir(eFan[FAN])
 {
-    new Float:fOrigin[3], iEnt
-    for ( new i = 0; i < sizeof(g_szPushClasses); i ++ )
+    new Float:fOrigin[3], iEnt, iTarget
+    for ( new i = 0; i < sizeof(g_szPushClasses) && iTarget < g_eSettings[SETTING_MAX_TARGETS]; i ++ )
     {
         iEnt = 0
         while ( (iEnt = engfunc(EngFunc_FindEntityByString, iEnt, "classname", g_szPushClasses[i])) )
@@ -1960,6 +1965,8 @@ stock fanAir(eFan[FAN])
                 continue
 
             fanPush(eFan, iEnt)
+            if ( ++ iTarget >= g_eSettings[SETTING_MAX_TARGETS] )
+                break
         }
     }
 }
@@ -1994,6 +2001,8 @@ stock fanPush(eFan[FAN], iEnt)
 stock fanSelect(eFan[FAN], iAction)
 {
     new iRender, iRenderFx, iRenderColor[3], iRenderAmt
+
+    iRenderFx = kRenderFxNone
     if ( iAction == TARGET_SELECT )
     {
         if ( eFan[FAN_FLAGS] & FLAG_ACTIVE ) { iRenderColor[0] = g_eSettings[SETTING_COLOR_ACTIVE][0];      iRenderColor[1] = g_eSettings[SETTING_COLOR_ACTIVE][1];     iRenderColor[2] = g_eSettings[SETTING_COLOR_ACTIVE][2]; }
@@ -2001,24 +2010,21 @@ stock fanSelect(eFan[FAN], iAction)
 
         iRender = kRenderTransColor
         iRenderFx = kRenderFxGlowShell
-        iRenderAmt = 32
+        iRenderAmt = 16
     }
     else if ( iAction == TARGET_GHOST )
     {
         iRender = kRenderTransAlpha
-        iRenderFx = kRenderFxNone
         iRenderAmt = g_eSettings[SETTING_GHOST_ALPHA]
     }
     else if ( iAction == TARGET_HIDE )
     {
         iRender = kRenderTransAlpha
-        iRenderFx = kRenderFxNone
         iRenderAmt = 0
     }
     else if ( iAction == TARGET_CLEAR )
     {
         iRender = kRenderNormal
-        iRenderFx = kRenderFxNone
         iRenderAmt = 255
     }
 
@@ -2056,7 +2062,7 @@ stock activeEnable(id)
     if ( !g_ePlayerData[id][PDATA_FAN_ACTION] )
     {
         new eFan[FAN]
-        for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+        for ( new i = 0; i < g_iFan; i ++ )
         {
             ArrayGetArray(g_aFan, i, eFan)
             if ( eFan[FAN_FLAGS] & FLAG_SHOW )
@@ -2076,7 +2082,7 @@ stock activeDisable(id)
     if ( g_ePlayerData[id][PDATA_FAN_ACTION] )
     {
         new eFan[FAN]
-        for ( new i = 0; i < ArraySize(g_aFan); i ++ )
+        for ( new i = 0; i < g_iFan; i ++ )
         {
             ArrayGetArray(g_aFan, i, eFan)
             if ( eFan[FAN_FLAGS] & FLAG_SHOW )
@@ -2111,7 +2117,7 @@ stock fanGet(eFan[FAN], iEnt)
 {
     new iItem
     iItem = pev(iEnt, FAN_ARRAY_ITEM)
-    if ( iItem < 0 || iItem >= ArraySize(g_aFan) )
+    if ( iItem < 0 || iItem >= g_iFan )
         return -1
 
     ArrayGetArray(g_aFan, iItem, eFan)
