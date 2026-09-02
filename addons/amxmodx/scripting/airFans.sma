@@ -48,14 +48,17 @@
 #endif
 
 #define MAX_ENT             32
+#define ADMIN_ACCESS        ADMIN_RCON
 #define FAN_KEY             761202
 #define FAN_ARRAY_ITEM      pev_iuser1
 #define FAN_SEQ_SPIN        0
-#define MIN_FRAMERATE       0.1
-#define MAX_FRAMERATE       5.0
+#define SOUND_NAV           "buttons/blip1.wav"
+#define SOUND_REMOVE        "buttons/button10.wav"
+#define SOUND_ALERT         "buttons/bell1.wav"
 
 new const PLUGIN_VERSION[]          = "1.0"
 new const Float:DELAY_ON_CONNECT    = 1.0
+new const Float:DELAY_ON_LOAD       = 1.0
 new const ERROR_FILE[]              = "AirFans_ERRORS.log"
 
 enum
@@ -71,11 +74,11 @@ enum
     DTYPE_INT_RANGE,
     DTYPE_FLOAT,
     DTYPE_FLOAT_RANGE,
-    DTYPE_VECTOR,
-    DTYPE_VECTOR_FLOAT,
+    DTYPE_INT_LIST,
+    DTYPE_FLOAT_LIST,
     DTYPE_BOOL,
     DTYPE_FLAGS,
-    DTYPE_ARRAY_MESSAGE,
+    DTYPE_ARRAY_STRING,
     DTYPE_ARRAY_SOUND,
     DTYPE_STRING_MODEL,
     DTYPE_STRING_SOUND,
@@ -93,7 +96,8 @@ enum
     FLAG_GROUND             = (1 << 5),
     FLAG_ACTIVE             = (1 << 6),
     FLAG_SOUND              = (1 << 7),
-    FLAG_PLAYING            = (1 << 8)
+    FLAG_PLAYING            = (1 << 8),
+    FLAG_PENDING            = (1 << 9)
 }
 
 enum
@@ -114,7 +118,7 @@ enum
 enum
 {
     SIZE_SMALL,
-    SIZE_MID,
+    SIZE_MEDIUM,
     SIZE_LARGE
 }
 
@@ -131,6 +135,8 @@ enum _:MAIN_SETTINGS
     SETTING_DEFAULT_FLAGS,
     SETTING_DEFAULT_TEAM,
 
+    SETTING_DEFAULT_SIZE,
+    Float:SETTING_DEFAULT_TRIGGER_SIZE,
     Float:SETTING_DEFAULT_SPAWN_CHANCE,
     Float:SETTING_DEFAULT_ACTIVE_DELAY[2],
     Float:SETTING_DEFAULT_ACTIVE_DURATION[2],
@@ -139,36 +145,29 @@ enum _:MAIN_SETTINGS
     Float:SETTING_DEFAULT_PUSH_STRENGTH,
     Float:SETTING_DEFAULT_PUSH_FREQ[2],
     Float:SETTING_DEFAULT_LENGTH,
+    Float:SETTING_DEFAULT_FRAMERATE,
     Array:SETTING_DEFAULT_SOUND,
 
     SETTING_MODEL_SMALL[MAX_RESOURCE_PATH_LENGTH],
-    SETTING_MODEL_MID[MAX_RESOURCE_PATH_LENGTH],
+    SETTING_MODEL_MEDIUM[MAX_RESOURCE_PATH_LENGTH],
     SETTING_MODEL_LARGE[MAX_RESOURCE_PATH_LENGTH],
     Float:SETTING_MINS_SMALL[3],
     Float:SETTING_MAXS_SMALL[3],
-    Float:SETTING_MINS_MID[3],
-    Float:SETTING_MAXS_MID[3],
+    Float:SETTING_MINS_MEDIUM[3],
+    Float:SETTING_MAXS_MEDIUM[3],
     Float:SETTING_MINS_LARGE[3],
     Float:SETTING_MAXS_LARGE[3],
     Float:SETTING_TRIGGER_SIZE[3],
-    Float:SETTING_FRAMERATE_MULTIPLIER,
     SETTING_MAX_TARGETS,
 
     bool:SETTING_FAN_LOAD,
-    Float:SETTING_FAN_RANGE,
     Float:SETTING_FAN_CHECK,
     Float:SETTING_FAN_TASK,
     Float:SETTING_OFFSET_BASE,
     Float:SETTING_OFFSET[2],
     Float:SETTING_OFFSET_STEP,
     SETTING_GHOST_ALPHA,
-    Float:SETTING_ROTATION_STEP,
-
-    SETTING_SOUND_MENU_NAV[MAX_RESOURCE_PATH_LENGTH],
-    SETTING_SOUND_MENU_REMOVE[MAX_RESOURCE_PATH_LENGTH],
-    SETTING_SOUND_MENU_ALERT[MAX_RESOURCE_PATH_LENGTH],
-    SETTING_COLOR_ACTIVE[3],
-    SETTING_COLOR_INACTIVE[3]
+    Float:SETTING_ROTATION_STEP
 }
 
 enum _:FAN
@@ -229,6 +228,7 @@ enum
 {
     MENU_ROOT,
     MENU_CREATE,
+    MENU_EDIT,
     MENU_REMOVE,
     MENU_SHOW,
     MENU_STATUS,
@@ -238,14 +238,18 @@ enum
 enum
 {
     ROOT_CREATE,
+    ROOT_EDIT,
     ROOT_REMOVE,
     ROOT_SAVE,
 
-    ROOT_SHOW = 4,
-    ROOT_STATUS,
-
-    ROOT_NOCLIP = 7,
+    ROOT_NOCLIP = 5,
     ROOT_GODMODE
+}
+
+enum
+{
+    EDIT_SHOW,
+    EDIT_STATUS
 }
 
 enum
@@ -302,6 +306,7 @@ new g_szMenuHandler[][MAX_VALUE_LENGTH] =
 {
     "menuHandlerRoot",
     "menuHandlerCreate",
+    "menuHandlerEdit",
     "menuHandlerRemove",
     "menuHandlerShow",
     "menuHandlerStatus",
@@ -313,7 +318,8 @@ new const g_szPushClasses[][] =
 {
     "player",
     "weaponbox",
-    "grenade"
+    "grenade",
+    "info_target"
 }
 
 new Array:g_aFan,
@@ -325,27 +331,27 @@ new Array:g_aFan,
     g_iFan, g_iFanConfig,
     g_iMaxPlayers
 
+new const g_iColorActive[] = { 0, 255, 0 }
+new const g_iColorInactive[] = { 255, 0, 0 }
 new g_szRotateMode[][] = {"FAN_ROTATE_PITCH", "FAN_ROTATE_YAW", "FAN_ROTATE_ROLL"}
-new g_szRotateSize[][] = {"FAN_ROTATE_SMALL", "FAN_ROTATE_MID", "FAN_ROTATE_LARGE"}
+new g_szRotateSize[][] = {"FAN_ROTATE_SMALL", "FAN_ROTATE_MEDIUM", "FAN_ROTATE_LARGE"}
 
 public plugin_init()
 {
     register_plugin("Air Fans", PLUGIN_VERSION, "RedSMURF")
+    register_cvar("AirFans", PLUGIN_VERSION, ADMIN_ACCESS)
 
-    register_clcmd("say /af",       "cmdMenu", ADMIN_RCON, "-- Opens the Air Fans menu.")
-    register_clcmd("say_team /af",  "cmdMenu", ADMIN_RCON, "-- Opens the Air Fans menu.")
-    register_concmd("fan_reload",   "cmdReload", ADMIN_RCON, "-- Reloads the configuration file")
-
+    register_clcmd("say /af",       "cmdMenu", ADMIN_ACCESS, "-- Opens the Air Fans menu.")
+    register_clcmd("say_team /af",  "cmdMenu", ADMIN_ACCESS, "-- Opens the Air Fans menu.")
+    register_concmd("fan_reload",   "cmdReload", ADMIN_ACCESS, "-- Reloads the configuration file")
     register_dictionary("AirFans.txt")
 
     g_iFwdUpdateClientData = register_forward(FM_UpdateClientData, "fwdUpdateClientData", 1)
     g_iFwdSpawn = RegisterHam(Ham_Spawn, "info_target", "fwdSpawn", 1)
     g_iFwdPreThink = RegisterHam(Ham_Player_PreThink, "player", "fwdPreThink")
     g_iFwdKilled = RegisterHam(Ham_Killed, "player", "fwdKilled", 1)
-    DisableForwards()
-
     register_logevent("eventRoundStart", 2, "1=Round_Start")
-    set_task(g_eSettings[SETTING_FAN_TASK], "fanTask", .flags = "b")
+    DisableForward()
 
     fanInit()
     g_iMaxPlayers = get_maxplayers()
@@ -413,8 +419,8 @@ public eventRoundStart()
         {
             eFan[FAN_FLAGS] |= (FLAG_SHOW | FLAG_ACTIVE)
 
-            fanSetState(eFan)
             fanSetDelay(eFan)
+            fanSetState(eFan)
         }
 
         ArraySetArray(g_aFan, i, eFan)
@@ -499,6 +505,7 @@ ReadFile()
                         eFan[FAN_PUSH_FREQ][0]        = g_eSettings[SETTING_DEFAULT_PUSH_FREQ][0]
                         eFan[FAN_PUSH_FREQ][1]        = g_eSettings[SETTING_DEFAULT_PUSH_FREQ][1]
                         eFan[FAN_LENGTH]              = g_eSettings[SETTING_DEFAULT_LENGTH]
+                        eFan[FAN_FRAMERATE]           = g_eSettings[SETTING_DEFAULT_FRAMERATE]
                         eFan[FAN_SOUND]               = ArrayClone(g_eSettings[SETTING_DEFAULT_SOUND])
 
                         iSection = SECTION_FAN
@@ -533,6 +540,8 @@ ReadFile()
                             parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FLAGS], charsmax(g_eSettings[SETTING_DEFAULT_FLAGS]))
                         else if ( equali(szKey, "SETTING_DEFAULT_TEAM") )
                             parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_TEAM], charsmax(g_eSettings[SETTING_DEFAULT_TEAM]))
+                        else if ( equali(szKey, "SETTING_DEFAULT_SIZE") )
+                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SIZE], charsmax(g_eSettings[SETTING_DEFAULT_SIZE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_SPAWN_CHANCE") )
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE], charsmax(g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_ACTIVE_DELAY") )
@@ -549,30 +558,30 @@ ReadFile()
                             parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_PUSH_FREQ], charsmax(g_eSettings[SETTING_DEFAULT_PUSH_FREQ]))
                         else if ( equali(szKey, "SETTING_DEFAULT_LENGTH") )
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LENGTH], charsmax(g_eSettings[SETTING_DEFAULT_LENGTH]))
+                        else if ( equali(szKey, "SETTING_DEFAULT_FRAMERATE") )
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FRAMERATE], charsmax(g_eSettings[SETTING_DEFAULT_FRAMERATE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_SOUND") )
                             parseSetting(DTYPE_ARRAY_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SOUND], charsmax(g_eSettings[SETTING_DEFAULT_SOUND]))
                         else if ( equali(szKey, "SETTING_MODEL_SMALL") )
                             parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_SMALL], charsmax(g_eSettings[SETTING_MODEL_SMALL]))
-                        else if ( equali(szKey, "SETTING_MODEL_MID") )
-                            parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_MID], charsmax(g_eSettings[SETTING_MODEL_MID]))
+                        else if ( equali(szKey, "SETTING_MODEL_MEDIUM") )
+                            parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_MEDIUM], charsmax(g_eSettings[SETTING_MODEL_MEDIUM]))
                         else if ( equali(szKey, "SETTING_MODEL_LARGE") )
                             parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_LARGE], charsmax(g_eSettings[SETTING_MODEL_LARGE]))
                         else if ( equali(szKey, "SETTING_MINS_SMALL") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_SMALL], charsmax(g_eSettings[SETTING_MINS_SMALL]))
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_SMALL], charsmax(g_eSettings[SETTING_MINS_SMALL]))
                         else if ( equali(szKey, "SETTING_MAXS_SMALL") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_SMALL], charsmax(g_eSettings[SETTING_MAXS_SMALL]))
-                        else if ( equali(szKey, "SETTING_MINS_MID") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_MID], charsmax(g_eSettings[SETTING_MINS_MID]))
-                        else if ( equali(szKey, "SETTING_MAXS_MID") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_MID], charsmax(g_eSettings[SETTING_MAXS_MID]))
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_SMALL], charsmax(g_eSettings[SETTING_MAXS_SMALL]))
+                        else if ( equali(szKey, "SETTING_MINS_MEDIUM") )
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_MEDIUM], charsmax(g_eSettings[SETTING_MINS_MEDIUM]))
+                        else if ( equali(szKey, "SETTING_MAXS_MEDIUM") )
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_MEDIUM], charsmax(g_eSettings[SETTING_MAXS_MEDIUM]))
                         else if ( equali(szKey, "SETTING_MINS_LARGE") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_LARGE], charsmax(g_eSettings[SETTING_MINS_LARGE]))
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_LARGE], charsmax(g_eSettings[SETTING_MINS_LARGE]))
                         else if ( equali(szKey, "SETTING_MAXS_LARGE") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_LARGE], charsmax(g_eSettings[SETTING_MAXS_LARGE]))
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_LARGE], charsmax(g_eSettings[SETTING_MAXS_LARGE]))
                         else if ( equali(szKey, "SETTING_TRIGGER_SIZE") )
-                            parseSetting(DTYPE_VECTOR_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_TRIGGER_SIZE], charsmax(g_eSettings[SETTING_TRIGGER_SIZE]))
-                        else if ( equali(szKey, "SETTING_FRAMERATE_MULTIPLIER") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FRAMERATE_MULTIPLIER], charsmax(g_eSettings[SETTING_FRAMERATE_MULTIPLIER]))
+                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_TRIGGER_SIZE], charsmax(g_eSettings[SETTING_TRIGGER_SIZE]))
                         else if ( equali(szKey, "SETTING_MAX_TARGETS") )
                             parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAX_TARGETS], charsmax(g_eSettings[SETTING_MAX_TARGETS]))
                         else if ( equali(szKey, "SETTING_FAN_LOAD") )
@@ -591,37 +600,29 @@ ReadFile()
                             parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_GHOST_ALPHA], charsmax(g_eSettings[SETTING_GHOST_ALPHA]))
                         else if ( equali(szKey, "SETTING_ROTATION_STEP") )
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_ROTATION_STEP], charsmax(g_eSettings[SETTING_ROTATION_STEP]))
-                        else if ( equali(szKey, "SETTING_SOUND_MENU_NAV") )
-                            parseSetting(DTYPE_STRING_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_SOUND_MENU_NAV], charsmax(g_eSettings[SETTING_SOUND_MENU_NAV]))
-                        else if ( equali(szKey, "SETTING_SOUND_MENU_REMOVE") )
-                            parseSetting(DTYPE_STRING_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_SOUND_MENU_REMOVE], charsmax(g_eSettings[SETTING_SOUND_MENU_REMOVE]))
-                        else if ( equali(szKey, "SETTING_SOUND_MENU_ALERT") )
-                            parseSetting(DTYPE_STRING_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_SOUND_MENU_ALERT], charsmax(g_eSettings[SETTING_SOUND_MENU_ALERT]))
-                        else if ( equali(szKey, "SETTING_COLOR_ACTIVE") )
-                            parseSetting(DTYPE_VECTOR, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_COLOR_ACTIVE], charsmax(g_eSettings[SETTING_COLOR_ACTIVE]))
-                        else if ( equali(szKey, "SETTING_COLOR_INACTIVE") )
-                            parseSetting(DTYPE_VECTOR, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_COLOR_INACTIVE], charsmax(g_eSettings[SETTING_COLOR_INACTIVE]))
                     }
                     case SECTION_FAN:
                     {
                         if ( equali(szKey, "FAN_FLAGS") )
-                            parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_FLAGS], charsmax(eFan[FAN_FLAGS]), g_eSettings[SETTING_DEFAULT_FLAGS])
+                            parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_FLAGS], charsmax(eFan[FAN_FLAGS]))
                         else if ( equali(szKey, "FAN_TEAM") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_TEAM], charsmax(eFan[FAN_TEAM]), g_eSettings[SETTING_DEFAULT_TEAM])
+                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_TEAM], charsmax(eFan[FAN_TEAM]))
                         else if ( equali(szKey, "FAN_SPAWN_CHANCE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SPAWN_CHANCE], charsmax(eFan[FAN_SPAWN_CHANCE]), g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE])
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SPAWN_CHANCE], charsmax(eFan[FAN_SPAWN_CHANCE]))
                         else if ( equali(szKey, "FAN_ACTIVE_DELAY") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DELAY], charsmax(eFan[FAN_ACTIVE_DELAY]), g_eSettings[SETTING_DEFAULT_ACTIVE_DELAY])
+                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DELAY], charsmax(eFan[FAN_ACTIVE_DELAY]))
                         else if ( equali(szKey, "FAN_ACTIVE_DURATION") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DURATION], charsmax(eFan[FAN_ACTIVE_DURATION]), g_eSettings[SETTING_DEFAULT_ACTIVE_DURATION])
+                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DURATION], charsmax(eFan[FAN_ACTIVE_DURATION]))
                         else if ( equali(szKey, "FAN_ACTIVE_COOLDOWN") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_COOLDOWN], charsmax(eFan[FAN_ACTIVE_COOLDOWN]), g_eSettings[SETTING_DEFAULT_ACTIVE_COOLDOWN])
+                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_COOLDOWN], charsmax(eFan[FAN_ACTIVE_COOLDOWN]))
                         else if ( equali(szKey, "FAN_PUSH_STRENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_STRENGTH], charsmax(eFan[FAN_PUSH_STRENGTH]), g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH])
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_STRENGTH], charsmax(eFan[FAN_PUSH_STRENGTH]))
                         else if ( equali(szKey, "FAN_PUSH_FREQ") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_FREQ], charsmax(eFan[FAN_PUSH_FREQ]), g_eSettings[SETTING_DEFAULT_PUSH_FREQ])
+                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_FREQ], charsmax(eFan[FAN_PUSH_FREQ]))
                         else if ( equali(szKey, "FAN_LENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_LENGTH], charsmax(eFan[FAN_LENGTH]), g_eSettings[SETTING_DEFAULT_LENGTH])
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_LENGTH], charsmax(eFan[FAN_LENGTH]))
+                        else if ( equali(szKey, "FAN_FRAMERATE") )
+                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_FRAMERATE], charsmax(eFan[FAN_FRAMERATE]))
                         else if ( equali(szKey, "FAN_SOUND") )
                         {
                             if ( !(eFan[FAN_FLAGS] & FLAG_SOUND) )
@@ -630,7 +631,7 @@ ReadFile()
                                 eFan[FAN_FLAGS] |= FLAG_SOUND
                             }
 
-                            parseSetting(DTYPE_ARRAY_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SOUND], charsmax(eFan[FAN_SOUND]), g_eSettings[SETTING_DEFAULT_SOUND])
+                            parseSetting(DTYPE_ARRAY_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SOUND], charsmax(eFan[FAN_SOUND]))
                         }
                     }
                 }
@@ -662,7 +663,7 @@ public client_disconnected(id)
         fanRemove(iItem)
     }
 
-    DisableForwards()
+    DisableAction(id)
     g_ePlayerData[id][PDATA_FAN_GHOST]  = 0
     g_ePlayerData[id][PDATA_FAN_MENU]   = 0
 }
@@ -675,7 +676,23 @@ public UpdateData(id)
 public fanInit()
 {
     if ( g_eSettings[SETTING_FAN_LOAD] )
-        loadData()
+        set_task(DELAY_ON_LOAD, "loadData")
+}
+
+stock fanTerminate()
+{
+    new eFan[FAN]
+    for ( new i = 0; i < g_iFan; i ++ )
+    {
+        ArrayGetArray(g_aFan, i, eFan)
+        eFan[FAN_FLAGS] &= ~FLAG_PLAYING
+        if ( !(eFan[FAN_FLAGS] & FLAG_PENDING) )
+            continue
+
+        eFan[FAN_FLAGS] |= FLAG_ACTIVE
+        eFan[FAN_FLAGS] &= ~FLAG_PENDING
+        ArraySetArray(g_aFan, i, eFan)
+    }
 }
 
 public fanMenu(id, iType)
@@ -690,6 +707,7 @@ public fanMenu(id, iType)
     {
         case MENU_ROOT:   { menuRoot(id, iMenu); }
         case MENU_CREATE: { menuCreate(iMenu);      format(szData, charsmax(szData), "%s^n%L", szData, id, "FAN_ROOT_CREATE"); }
+        case MENU_EDIT:   { menuEdit(id, iMenu);    format(szData, charsmax(szData), "%s^n%L", szData, id, "FAN_ROOT_EDIT"); }
         case MENU_REMOVE: { menuRemove(id, iMenu);  format(szData, charsmax(szData), "%s^n%L", szData, id, "FAN_ROOT_REMOVE"); }
         case MENU_SHOW:   { menuShow(id, iMenu);    format(szData, charsmax(szData), "%s^n%L", szData, id, "FAN_ROOT_SHOW"); }
         case MENU_STATUS: { menuStatus(id, iMenu);  format(szData, charsmax(szData), "%s^n%L", szData, id, "FAN_ROOT_STATUS"); }
@@ -725,18 +743,13 @@ public menuRoot(id, iMenu)
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_CREATE")
     menu_additem(iMenu, szItem)
 
+    formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_EDIT")
+    menu_additem(iMenu, szItem)
+
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_REMOVE")
     menu_additem(iMenu, szItem)
 
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_SAVE")
-    menu_additem(iMenu, szItem)
-
-    menu_addblank2(iMenu)
-
-    formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_SHOW")
-    menu_additem(iMenu, szItem)
-
-    formatex(szItem, charsmax(szItem), "%L", id, "FAN_ROOT_STATUS")
     menu_additem(iMenu, szItem)
 
     menu_addblank2(iMenu)
@@ -773,6 +786,21 @@ public menuHandlerRoot(id, menu, item)
                 fanMenu(id, MENU_CREATE)
             }
         }
+        case ROOT_EDIT:
+        {
+            if ( !g_iFan )
+            {
+                client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
+
+                fanSound(id, SOUND_MENU_REMOVE)
+                fanMenu(id, MENU_ROOT)
+            }
+            else
+            {
+                fanSound(id, SOUND_MENU_NAV)
+                fanMenu(id, MENU_EDIT)
+            }
+        }
         case ROOT_REMOVE:
         {
             if ( !g_iFan )
@@ -791,36 +819,6 @@ public menuHandlerRoot(id, menu, item)
         case ROOT_SAVE:
         {
             saveData(id)
-        }
-        case ROOT_SHOW:
-        {
-            if ( !g_iFan )
-            {
-                client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
-
-                fanSound(id, SOUND_MENU_REMOVE)
-                fanMenu(id, MENU_ROOT)
-            }
-            else
-            {
-                fanSound(id, SOUND_MENU_NAV)
-                fanMenu(id, MENU_SHOW)
-            }
-        }
-        case ROOT_STATUS:
-        {
-            if ( !g_iFan )
-            {
-                client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_NO_FAN")
-
-                fanSound(id, SOUND_MENU_REMOVE)
-                fanMenu(id, MENU_ROOT)
-            }
-            else
-            {
-                fanSound(id, SOUND_MENU_NAV)
-                fanMenu(id, MENU_STATUS)
-            }
         }
         case ROOT_NOCLIP:
         {
@@ -872,6 +870,41 @@ public menuHandlerCreate(id, menu, item)
     return PLUGIN_HANDLED
 }
 
+public menuEdit(id, iMenu)
+{
+    new szItem[64]
+    formatex(szItem, charsmax(szItem), "%L", id, "FAN_EDIT_SHOW")
+    menu_additem(iMenu, szItem)
+
+    formatex(szItem, charsmax(szItem), "%L", id, "FAN_EDIT_STATUS")
+    menu_additem(iMenu, szItem)
+}
+
+public menuHandlerEdit(id, menu, item)
+{
+    switch( item )
+    {
+        case EDIT_SHOW:
+        {
+            fanSound(id, SOUND_MENU_NAV)
+            fanMenu(id, MENU_SHOW)
+        }
+        case EDIT_STATUS:
+        {
+            fanSound(id, SOUND_MENU_NAV)
+            fanMenu(id, MENU_STATUS)
+        }
+        case MENU_EXIT:
+        {
+            fanSound(id, SOUND_MENU_NAV)
+            fanMenu(id, MENU_ROOT)
+        }
+    }
+
+    menu_destroy(menu)
+    return PLUGIN_HANDLED
+}
+
 public menuRemove(id, iMenu)
 {
     new szItem[64], eFan[FAN]
@@ -884,7 +917,7 @@ public menuRemove(id, iMenu)
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_REMOVE_ALL")
     menu_additem(iMenu, szItem)
 
-    activeEnable(id)
+    EnableAction(id)
     fanSelect(eFan, TARGET_SELECT)
     g_ePlayerData[id][PDATA_MENU_TYPE] = MENU_REMOVE
     ArraySetArray(g_aFan, g_ePlayerData[id][PDATA_FAN_MENU], eFan)
@@ -957,7 +990,7 @@ public menuHandlerRemove(id, menu, item)
                 fanSound(id, SOUND_MENU_NAV)
                 fanMenu(id, MENU_ROOT)
 
-                activeDisable(id)
+                DisableAction(id)
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             }
 
@@ -965,7 +998,7 @@ public menuHandlerRemove(id, menu, item)
         }
         default:
         {
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_MENU] = 0
         }
     }
@@ -990,7 +1023,7 @@ public menuShow(id, iMenu)
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_SHOW_ALL_HIDE")
     menu_additem(iMenu, szItem)
 
-    activeEnable(id)
+    EnableAction(id)
     fanSelect(eFan, TARGET_SELECT)
     g_ePlayerData[id][PDATA_MENU_TYPE] = MENU_SHOW
     ArraySetArray(g_aFan, g_ePlayerData[id][PDATA_FAN_MENU], eFan)
@@ -1074,7 +1107,7 @@ public menuHandlerShow(id, menu, item)
                 fanSound(id, SOUND_MENU_NAV)
                 fanMenu(id, MENU_ROOT)
 
-                activeDisable(id)
+                DisableAction(id)
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             }
 
@@ -1082,7 +1115,7 @@ public menuHandlerShow(id, menu, item)
         }
         default:
         {
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_MENU] = 0
         }
     }
@@ -1107,7 +1140,7 @@ public menuStatus(id, iMenu)
     formatex(szItem, charsmax(szItem), "%L", id, "FAN_STATUS_ALL_DISABLE")
     menu_additem(iMenu, szItem)
 
-    activeEnable(id)
+    EnableAction(id)
     fanSelect(eFan, TARGET_SELECT)
     g_ePlayerData[id][PDATA_MENU_TYPE] = MENU_STATUS
     ArraySetArray(g_aFan, g_ePlayerData[id][PDATA_FAN_MENU], eFan)
@@ -1191,7 +1224,7 @@ public menuHandlerStatus(id, menu, item)
                 fanSound(id, SOUND_MENU_NAV)
                 fanMenu(id, MENU_ROOT)
 
-                activeDisable(id)
+                DisableAction(id)
                 g_ePlayerData[id][PDATA_FAN_MENU] = 0
             }
 
@@ -1199,7 +1232,7 @@ public menuHandlerStatus(id, menu, item)
         }
         default:
         {
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_MENU] = 0
         }
     }
@@ -1296,29 +1329,30 @@ public menuHandlerRotate(id, menu, item)
                 g_ePlayerData[id][PDATA_ROTATE_SIZE] = SIZE_SMALL
 
             eFan[FAN_SIZE] = g_ePlayerData[id][PDATA_ROTATE_SIZE]
+            eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][eFan[FAN_SIZE]]
             switch( eFan[FAN_SIZE] )
             {
-                case SIZE_SMALL: { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_SMALL]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][0]; }
-                case SIZE_MID:   { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_MID]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][1]; }
-                case SIZE_LARGE: { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_LARGE]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][2]; }
+                case SIZE_SMALL:  engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_SMALL])
+                case SIZE_MEDIUM: engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_MEDIUM])
+                case SIZE_LARGE:  engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_LARGE])
             }
-
             ArraySetArray(g_aFan, iItem, eFan)
+
             fanSound(id, SOUND_MENU_NAV)
             fanMenu(id, MENU_ROTATE)
         }
         case ROTATE_PLACE:
         {
             fanTrace(eFan, id)
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
 
             eFan[FAN_FLAGS] |= (FLAG_SHOW | FLAG_ACTIVE)
             eFan[FAN_FLAGS] &= ~FLAG_GHOST
             eFan[FAN_ANGLES][0] = -eFan[FAN_ANGLES][0]
             fanSetSize(eFan)
-            fanSetState(eFan)
             fanSetDelay(eFan)
+            fanSetState(eFan)
             ArraySetArray(g_aFan, iItem, eFan)
 
             client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_CREATE_NEW", eFan[FAN_NAME])
@@ -1329,7 +1363,7 @@ public menuHandlerRotate(id, menu, item)
         {
             fanKill(eFan[FAN_ID])
             fanRemove(iItem)
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
 
             fanSound(id, SOUND_MENU_NAV)
@@ -1339,7 +1373,7 @@ public menuHandlerRotate(id, menu, item)
         {
             fanKill(eFan[FAN_ID])
             fanRemove(iItem)
-            activeDisable(id)
+            DisableAction(id)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
         }
     }
@@ -1372,6 +1406,7 @@ public fanTask()
                 && fCurrentTime >= eFan[FAN_NEXT_DISABLE] )
                 {
                     eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
+                    eFan[FAN_FLAGS] |= FLAG_PENDING
                     eFan[FAN_NEXT_DISABLE] = 0.0
                     eFan[FAN_NEXT_ENABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_COOLDOWN][0], eFan[FAN_ACTIVE_COOLDOWN][1])
 
@@ -1385,6 +1420,7 @@ public fanTask()
                 && fCurrentTime >= eFan[FAN_NEXT_ENABLE] )
                 {
                     eFan[FAN_FLAGS] |= FLAG_ACTIVE
+                    eFan[FAN_FLAGS] &= ~FLAG_PENDING
                     eFan[FAN_NEXT_ENABLE] = 0.0
                     if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DURATION )
                         eFan[FAN_NEXT_DISABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DURATION][0], eFan[FAN_ACTIVE_DURATION][1])
@@ -1402,21 +1438,17 @@ public fanTask()
 
 stock fanCreate(id, iItem)
 {
-    new iEnt
-    iEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"))
+    new iEnt = cs_create_entity("info_target")
     if ( !pev_valid(iEnt) )
         return
 
     new eFan[FAN]
     ArrayGetArray(g_aFanConfig, iItem, eFan)
-
     eFan[FAN_ID] = iEnt
     eFan[FAN_ITEM] = iItem
-    eFan[FAN_SIZE] = g_ePlayerData[id][PDATA_ROTATE_SIZE]
-    eFan[FAN_FRAMERATE] = floatclamp((eFan[FAN_PUSH_STRENGTH] / g_eSettings[SETTING_DEFAULT_BASE_STRENGTH]) * g_eSettings[SETTING_FRAMERATE_MULTIPLIER], MIN_FRAMERATE, MAX_FRAMERATE)
     if ( id )
     {
-        activeEnable(id)
+        EnableAction(id)
         g_ePlayerData[id][PDATA_FAN_GHOST] = eFan[FAN_ID]
         g_ePlayerData[id][PDATA_ROTATE_MODE] = ROTATE_MODE_YAW
         g_ePlayerData[id][PDATA_OFFSET] = g_eSettings[SETTING_OFFSET_BASE]
@@ -1424,28 +1456,36 @@ stock fanCreate(id, iItem)
         eFan[FAN_FLAGS] |= FLAG_GHOST
     }
 
-    switch( eFan[FAN_SIZE] )
+    fanSelect(eFan, TARGET_GHOST)
+    set_pev(iEnt, pev_classname, g_szCN)
+    set_pev(iEnt, pev_impulse, FAN_KEY)
+    set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
+
+    dllfunc(DLLFunc_Spawn, iEnt)
+    set_pev(iEnt, pev_framerate, eFan[FAN_FRAMERATE])
+
+    if ( id )
     {
-        case SIZE_SMALL: { engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_SMALL]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][0]; }
-        case SIZE_MID:   { engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_MID]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][1]; }
-        case SIZE_LARGE: { engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_LARGE]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][2]; }
+        switch ( eFan[FAN_SIZE] )
+        {
+            case SIZE_SMALL:  engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_SMALL])
+            case SIZE_MEDIUM: engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_MEDIUM])
+            case SIZE_LARGE:  engfunc(EngFunc_SetModel, iEnt, g_eSettings[SETTING_MODEL_LARGE])
+        }
     }
 
-    fanSelect(eFan, TARGET_GHOST)
-    set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
-    set_pev(iEnt, pev_impulse, FAN_KEY)
-    set_pev(iEnt, pev_classname, g_szCN)
-
-    g_iFan ++
     ArrayPushArray(g_aFan, eFan)
-    dllfunc(DLLFunc_Spawn, iEnt)
+    if ( ++ g_iFan == 1 )
+        set_task(g_eSettings[SETTING_FAN_TASK], "fanTask", FAN_KEY, .flags = "b")
 }
 
 public fanRemove(iItem)
 {
     new eFan[FAN]
     ArrayDeleteItem(g_aFan, iItem)
-    g_iFan --
+
+    if ( -- g_iFan == 0 )
+        remove_task(FAN_KEY)
 
     for ( new i = iItem; i < g_iFan; i ++ )
     {
@@ -1467,6 +1507,7 @@ public saveData(id)
     if ( !iFile )
         return PLUGIN_HANDLED
 
+    fanTerminate()
     for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
@@ -1477,7 +1518,6 @@ public saveData(id)
         formatex(szData, charsmax(szData), "item = %d^n", eFan[FAN_ITEM])
         fputs(iFile, szData)
 
-        eFan[FAN_FLAGS] &= ~FLAG_PLAYING
         formatex(szData, charsmax(szData), "flags = %d^n", eFan[FAN_FLAGS])
         fputs(iFile, szData)
 
@@ -1583,17 +1623,18 @@ stock loadDataFan(iItem, iFlags, iSize, Float:fOrigin[3], Float:fAngles[3], iCou
 
     eFan[FAN_FLAGS] = iFlags
     eFan[FAN_SIZE] = iSize
+    eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][eFan[FAN_SIZE]]
     switch( eFan[FAN_SIZE] )
     {
-        case SIZE_SMALL: { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_SMALL]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][0]; }
-        case SIZE_MID:   { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_MID]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][1]; }
-        case SIZE_LARGE: { engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_LARGE]); eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][2]; }
+        case SIZE_SMALL:  engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_SMALL])
+        case SIZE_MEDIUM: engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_MEDIUM])
+        case SIZE_LARGE:  engfunc(EngFunc_SetModel, eFan[FAN_ID], g_eSettings[SETTING_MODEL_LARGE])
     }
 
     fanSetBox(eFan)
     fanSetSize(eFan)
-    fanSetState(eFan)
     fanSetDelay(eFan)
+    fanSetState(eFan)
     ArraySetArray(g_aFan, iCount, eFan)
 }
 
@@ -1678,7 +1719,7 @@ public fwdPreThink(id)
 
 public fwdKilled(id, iAttacker, bGib)
 {
-    DisableForwards()
+    DisableAction(id)
     g_ePlayerData[id][PDATA_FAN_MENU]   = 0
     if ( g_ePlayerData[id][PDATA_FAN_GHOST] )
     {
@@ -1775,7 +1816,7 @@ stock fanSetBox(eFan[FAN])
     switch( eFan[FAN_SIZE] )
     {
         case SIZE_SMALL:    { xs_vec_copy(g_eSettings[SETTING_MINS_SMALL], fMins);  xs_vec_copy(g_eSettings[SETTING_MAXS_SMALL], fMaxs); }
-        case SIZE_MID:      { xs_vec_copy(g_eSettings[SETTING_MINS_MID], fMins);    xs_vec_copy(g_eSettings[SETTING_MAXS_MID], fMaxs); }
+        case SIZE_MEDIUM:   { xs_vec_copy(g_eSettings[SETTING_MINS_MEDIUM], fMins); xs_vec_copy(g_eSettings[SETTING_MAXS_MEDIUM], fMaxs); }
         case SIZE_LARGE:    { xs_vec_copy(g_eSettings[SETTING_MINS_LARGE], fMins);  xs_vec_copy(g_eSettings[SETTING_MAXS_LARGE], fMaxs); }
     }
 
@@ -1849,7 +1890,7 @@ stock fanSetOffset(eFan[FAN])
     }
 }
 
-stock fanSetSeq(iEnt, Float:fFrameRate = 1.0)
+stock fanSetSeq(iEnt, Float:fFrameRate)
 {
     set_pev(iEnt, pev_sequence, FAN_SEQ_SPIN)
     set_pev(iEnt, pev_frame, 0.0)
@@ -1860,10 +1901,10 @@ stock fanSetSeq(iEnt, Float:fFrameRate = 1.0)
 stock fanSetSize(eFan[FAN])
 {
     fanSelect(eFan, TARGET_CLEAR)
+    engfunc(EngFunc_SetOrigin, eFan[FAN_ID], eFan[FAN_ORIGIN_START])
+    set_pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
     set_pev(eFan[FAN_ID], pev_solid, eFan[FAN_FLAGS] & FLAG_SHOW ? SOLID_BBOX : SOLID_NOT)
     set_pev(eFan[FAN_ID], pev_movetype, MOVETYPE_NONE)
-    set_pev(eFan[FAN_ID], pev_origin, eFan[FAN_ORIGIN_START])
-    set_pev(eFan[FAN_ID], pev_angles, eFan[FAN_ANGLES])
 
     eFan[FAN_ANGLES][0] = -eFan[FAN_ANGLES][0]
     engfunc(EngFunc_SetSize, eFan[FAN_ID], eFan[FAN_MINS], eFan[FAN_MAXS])
@@ -1879,6 +1920,28 @@ stock fanLength(eFan[FAN])
 
     engfunc(EngFunc_TraceLine, eFan[FAN_ORIGIN_START], eFan[FAN_ORIGIN_END], IGNORE_MONSTERS, eFan[FAN_ID], 0)
     get_tr2(0, TR_vecEndPos, eFan[FAN_ORIGIN_END])
+}
+
+stock fanSetDelay(eFan[FAN])
+{
+    if ( eFan[FAN_FLAGS] & FLAG_ACTIVE )
+    {
+        new Float:fCurrentTime
+        fCurrentTime = get_gametime()
+
+        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DELAY )
+        {
+            eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
+            eFan[FAN_NEXT_ENABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DELAY][0], eFan[FAN_ACTIVE_DELAY][1])
+
+            fanSetState(eFan)
+        }
+        else
+        {
+            if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DURATION )
+                eFan[FAN_NEXT_DISABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DURATION][0], eFan[FAN_ACTIVE_DURATION][1])
+        }
+    }
 }
 
 stock fanSetState(eFan[FAN])
@@ -1917,28 +1980,6 @@ stock fanSetState(eFan[FAN])
         {
             eFan[FAN_FLAGS] &= ~FLAG_PLAYING
             engfunc(EngFunc_EmitAmbientSound, eFan[FAN_ID], CHAN_ITEM, eFan[FAN_SOUND_CURRENT], VOL_NORM, ATTN_NORM, SND_STOP, PITCH_NORM)
-        }
-    }
-}
-
-stock fanSetDelay(eFan[FAN])
-{
-    if ( eFan[FAN_FLAGS] & FLAG_ACTIVE )
-    {
-        new Float:fCurrentTime
-        fCurrentTime = get_gametime()
-
-        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DELAY )
-        {
-            eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
-            eFan[FAN_NEXT_ENABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DELAY][0], eFan[FAN_ACTIVE_DELAY][1])
-
-            fanSetState(eFan)
-        }
-        else
-        {
-            if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DURATION )
-                eFan[FAN_NEXT_DISABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DURATION][0], eFan[FAN_ACTIVE_DURATION][1])
         }
     }
 }
@@ -2005,8 +2046,8 @@ stock fanSelect(eFan[FAN], iAction)
     iRenderFx = kRenderFxNone
     if ( iAction == TARGET_SELECT )
     {
-        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE ) { iRenderColor[0] = g_eSettings[SETTING_COLOR_ACTIVE][0];      iRenderColor[1] = g_eSettings[SETTING_COLOR_ACTIVE][1];     iRenderColor[2] = g_eSettings[SETTING_COLOR_ACTIVE][2]; }
-        else                                 { iRenderColor[0] = g_eSettings[SETTING_COLOR_INACTIVE][0];    iRenderColor[1] = g_eSettings[SETTING_COLOR_INACTIVE][1];   iRenderColor[2] = g_eSettings[SETTING_COLOR_INACTIVE][2]; }
+        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE ) { iRenderColor[0] = g_iColorActive[0];      iRenderColor[1] = g_iColorActive[1];     iRenderColor[2] = g_iColorActive[2]; }
+        else                                 { iRenderColor[0] = g_iColorInactive[0];    iRenderColor[1] = g_iColorInactive[1];   iRenderColor[2] = g_iColorInactive[2]; }
 
         iRender = kRenderTransColor
         iRenderFx = kRenderFxGlowShell
@@ -2036,9 +2077,9 @@ stock fanSound(iEnt, iSound, bool:bPlayer = true)
     new szSample[64]
     switch( iSound )
     {
-        case SOUND_MENU_NAV:    copy(szSample, charsmax(szSample), g_eSettings[SETTING_SOUND_MENU_NAV])
-        case SOUND_MENU_REMOVE: copy(szSample, charsmax(szSample), g_eSettings[SETTING_SOUND_MENU_REMOVE])
-        case SOUND_MENU_ALERT:  copy(szSample, charsmax(szSample), g_eSettings[SETTING_SOUND_MENU_ALERT])
+        case SOUND_MENU_NAV:    copy(szSample, charsmax(szSample), SOUND_NAV)
+        case SOUND_MENU_REMOVE: copy(szSample, charsmax(szSample), SOUND_REMOVE)
+        case SOUND_MENU_ALERT:  copy(szSample, charsmax(szSample), SOUND_ALERT)
     }
 
     if ( bPlayer )
@@ -2055,62 +2096,6 @@ stock fanReset(eFan[FAN])
     eFan[FAN_NEXT_PUSH] = 0.0
 
     fanSetState(eFan)
-}
-
-stock activeEnable(id)
-{
-    if ( !g_ePlayerData[id][PDATA_FAN_ACTION] )
-    {
-        new eFan[FAN]
-        for ( new i = 0; i < g_iFan; i ++ )
-        {
-            ArrayGetArray(g_aFan, i, eFan)
-            if ( eFan[FAN_FLAGS] & FLAG_SHOW )
-                continue
-
-            fanSelect(eFan, TARGET_GHOST)
-        }
-
-        g_ePlayerData[id][PDATA_FAN_ACTION] = true
-        if ( ++ g_iActivePlayers == 1 )
-            EnableForwards()
-    }
-}
-
-stock activeDisable(id)
-{
-    if ( g_ePlayerData[id][PDATA_FAN_ACTION] )
-    {
-        new eFan[FAN]
-        for ( new i = 0; i < g_iFan; i ++ )
-        {
-            ArrayGetArray(g_aFan, i, eFan)
-            if ( eFan[FAN_FLAGS] & FLAG_SHOW )
-                continue
-
-            fanSelect(eFan, TARGET_HIDE)
-        }
-
-        g_ePlayerData[id][PDATA_FAN_ACTION] = false
-        if ( -- g_iActivePlayers == 0 )
-            DisableForwards()
-    }
-}
-
-stock EnableForwards()
-{
-    g_iFwdUpdateClientData = register_forward(FM_UpdateClientData, "fwdUpdateClientData", 1)
-    EnableHamForward(g_iFwdSpawn)
-    EnableHamForward(g_iFwdPreThink)
-    EnableHamForward(g_iFwdKilled)
-}
-
-stock DisableForwards()
-{
-    unregister_forward(FM_UpdateClientData, g_iFwdUpdateClientData, 1)
-    DisableHamForward(g_iFwdSpawn)
-    DisableHamForward(g_iFwdPreThink)
-    DisableHamForward(g_iFwdKilled)
 }
 
 stock fanGet(eFan[FAN], iEnt)
@@ -2135,91 +2120,151 @@ stock fanKill(iEnt)
         set_pev(iEnt, pev_flags, pev(iEnt, pev_flags) | FL_KILLME)
 }
 
-stock parseSetting(iType, szKey[], iKeyLen, szValue[], iValueLen, any:output[], iOutputLen, const any:fallback[] = {0.0, 0.0})
+stock parseSetting(iType, szKey[], iKeyLen, szValue[], iValueLen, any:aOutput[], iOutputLength)
 {
     switch ( iType )
     {
-        case DTYPE_FLOAT_RANGE:
+        case DTYPE_INT:
         {
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[0] = str_to_float(szKey)
-            output[1] = str_to_float(szValue)
-
-            if ( output[0] < 0.0 ) output[0] = fallback[0]
-            if ( output[1] < 0.0 ) output[1] = fallback[1]
-        }
-        case DTYPE_FLOAT:
-        {
-            output[0] = str_to_float(szValue)
-            if ( output[0] < 0.0 ) output[0] = fallback[0]
+            aOutput[0] = str_to_num(szValue)
         }
         case DTYPE_INT_RANGE:
         {
             strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[0] = str_to_num(szKey)
-            output[1] = str_to_num(szValue)
-
-            if ( output[0] < 0 ) output[0] = fallback[0]
-            if ( output[1] < 0 ) output[1] = fallback[1]
+            aOutput[0] = str_to_num(szKey)
+            aOutput[1] = str_to_num(szValue)
         }
-        case DTYPE_INT:
+        case DTYPE_FLOAT:
         {
-            output[0] = str_to_num(szValue)
-            if ( output[0] < 0 ) output[0] = fallback[0]
+            aOutput[0] = str_to_float(szValue)
+        }
+        case DTYPE_FLOAT_RANGE:
+        {
+            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
+            aOutput[0] = str_to_float(szKey)
+            aOutput[1] = str_to_float(szValue)
+        }
+        case DTYPE_INT_LIST:
+        {
+            new szTok[MAX_VALUE_LENGTH], szTmp[MAX_VALUE_LENGTH], iCounter
+            copy(szTmp, charsmax(szTmp), szValue)
+
+            strtok(szTmp, szTok, charsmax(szTok), szTmp, charsmax(szTmp), ' ')
+            trim(szTok)
+            while ( szTok[0] )
+            {
+                aOutput[iCounter ++] = str_to_num(szTok)
+
+                strtok(szTmp, szTok, charsmax(szTok), szTmp, charsmax(szTmp), ' ')
+                trim(szTok)
+            }
+        }
+        case DTYPE_FLOAT_LIST:
+        {
+            new szTok[MAX_VALUE_LENGTH], szTmp[MAX_VALUE_LENGTH], iCounter
+            copy(szTmp, charsmax(szTmp), szValue)
+
+            strtok(szTmp, szTok, charsmax(szTok), szTmp, charsmax(szTmp), ' ')
+            trim(szTok)
+            while ( szTok[0] )
+            {
+                aOutput[iCounter ++] = str_to_float(szTok)
+
+                strtok(szTmp, szTok, charsmax(szTok), szTmp, charsmax(szTmp), ' ')
+                trim(szTok)
+            }
         }
         case DTYPE_BOOL:
         {
-            output[0] = bool:str_to_num(szValue)
+            aOutput[0] = bool:str_to_num(szValue)
         }
         case DTYPE_FLAGS:
         {
-            output[0] = read_flags(szValue)
+            aOutput[0] = read_flags(szValue)
         }
-        case DTYPE_VECTOR:
-        {
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[0] = str_to_num(szKey)
-
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[1] = str_to_num(szKey)
-            output[2] = str_to_num(szValue)
-        }
-        case DTYPE_VECTOR_FLOAT:
-        {
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[0] = str_to_float(szKey)
-
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            output[1] = str_to_float(szKey)
-            output[2] = str_to_float(szValue)
-        }
-        case DTYPE_ARRAY_MESSAGE:
+        case DTYPE_ARRAY_STRING:
         {
             replace_all(szValue, iValueLen, "^"", " ")
             replace_all(szValue, iValueLen, "^^n", "^n")
-            ArrayPushString(output[0], szValue)
+            ArrayPushString(aOutput[0], szValue)
         }
         case DTYPE_ARRAY_SOUND:
         {
-            ArrayPushString(output[0], szValue)
+            ArrayPushString(aOutput[0], szValue)
             if ( !g_bFileWasRead ) precache_sound(szValue)
         }
         case DTYPE_STRING_MODEL:
         {
-            copy(output, iOutputLen, szValue)
+            copy(aOutput, iOutputLength, szValue)
             if ( !g_bFileWasRead ) precache_model(szValue)
         }
         case DTYPE_STRING_SOUND:
         {
-            copy(output, iOutputLen, szValue)
+            copy(aOutput, iOutputLength, szValue)
             if ( !g_bFileWasRead ) precache_sound(szValue)
         }
         case DTYPE_STRING_MODEL_ID:
         {
             if ( !g_bFileWasRead )
-                output[0] = precache_model(szValue)
+                aOutput[0] = precache_model(szValue)
         }
     }
+}
+
+stock EnableAction(id)
+{
+    if ( !g_ePlayerData[id][PDATA_FAN_ACTION] )
+    {
+        new eFan[FAN]
+        for ( new i = 0; i < g_iFan; i ++ )
+        {
+            ArrayGetArray(g_aFan, i, eFan)
+            if ( eFan[FAN_FLAGS] & FLAG_SHOW )
+                continue
+
+            fanSelect(eFan, TARGET_GHOST)
+        }
+
+        g_ePlayerData[id][PDATA_FAN_ACTION] = true
+        if ( ++ g_iActivePlayers == 1 )
+            EnableForward()
+    }
+}
+
+stock DisableAction(id)
+{
+    if ( g_ePlayerData[id][PDATA_FAN_ACTION] )
+    {
+        new eFan[FAN]
+        for ( new i = 0; i < g_iFan; i ++ )
+        {
+            ArrayGetArray(g_aFan, i, eFan)
+            if ( eFan[FAN_FLAGS] & FLAG_SHOW )
+                continue
+
+            fanSelect(eFan, TARGET_HIDE)
+        }
+
+        g_ePlayerData[id][PDATA_FAN_ACTION] = false
+        if ( -- g_iActivePlayers == 0 )
+            DisableForward()
+    }
+}
+
+stock EnableForward()
+{
+    g_iFwdUpdateClientData = register_forward(FM_UpdateClientData, "fwdUpdateClientData", 1)
+    EnableHamForward(g_iFwdSpawn)
+    EnableHamForward(g_iFwdPreThink)
+    EnableHamForward(g_iFwdKilled)
+}
+
+stock DisableForward()
+{
+    unregister_forward(FM_UpdateClientData, g_iFwdUpdateClientData, 1)
+    DisableHamForward(g_iFwdSpawn)
+    DisableHamForward(g_iFwdPreThink)
+    DisableHamForward(g_iFwdKilled)
 }
 
 stock LogConfigError(const iLine, const szText[], any:...)
