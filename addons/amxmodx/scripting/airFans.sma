@@ -135,8 +135,6 @@ enum _:MAIN_SETTINGS
     SETTING_DEFAULT_FLAGS,
     SETTING_DEFAULT_TEAM,
 
-    SETTING_DEFAULT_SIZE,
-    Float:SETTING_DEFAULT_TRIGGER_SIZE,
     Float:SETTING_DEFAULT_SPAWN_CHANCE,
     Float:SETTING_DEFAULT_ACTIVE_DELAY[2],
     Float:SETTING_DEFAULT_ACTIVE_DURATION[2],
@@ -540,8 +538,6 @@ ReadFile()
                             parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FLAGS], charsmax(g_eSettings[SETTING_DEFAULT_FLAGS]))
                         else if ( equali(szKey, "SETTING_DEFAULT_TEAM") )
                             parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_TEAM], charsmax(g_eSettings[SETTING_DEFAULT_TEAM]))
-                        else if ( equali(szKey, "SETTING_DEFAULT_SIZE") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SIZE], charsmax(g_eSettings[SETTING_DEFAULT_SIZE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_SPAWN_CHANCE") )
                             parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE], charsmax(g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_ACTIVE_DELAY") )
@@ -1454,15 +1450,14 @@ stock fanCreate(id, iItem)
         g_ePlayerData[id][PDATA_OFFSET] = g_eSettings[SETTING_OFFSET_BASE]
 
         eFan[FAN_FLAGS] |= FLAG_GHOST
+        eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][g_ePlayerData[id][PDATA_ROTATE_SIZE]]
     }
 
     fanSelect(eFan, TARGET_GHOST)
     set_pev(iEnt, pev_classname, g_szCN)
     set_pev(iEnt, pev_impulse, FAN_KEY)
     set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
-
     dllfunc(DLLFunc_Spawn, iEnt)
-    set_pev(iEnt, pev_framerate, eFan[FAN_FRAMERATE])
 
     if ( id )
     {
@@ -1617,10 +1612,8 @@ stock loadDataFan(iItem, iFlags, iSize, Float:fOrigin[3], Float:fAngles[3], iCou
     fanCreate(0, iItem)
     ArrayGetArray(g_aFan, iCount, eFan)
 
-    fAngles[0] = -fAngles[0]
     xs_vec_copy(fOrigin, eFan[FAN_ORIGIN_START])
     xs_vec_copy(fAngles, eFan[FAN_ANGLES])
-
     eFan[FAN_FLAGS] = iFlags
     eFan[FAN_SIZE] = iSize
     eFan[FAN_TRIGGER_SIZE] = g_eSettings[SETTING_TRIGGER_SIZE][eFan[FAN_SIZE]]
