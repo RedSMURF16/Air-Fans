@@ -47,18 +47,21 @@
     #define MAX_PLATFORM_PATH_LENGTH 256
 #endif
 
-#define MAX_ENT             32
-#define ADMIN_ACCESS        ADMIN_RCON
-#define FAN_KEY             761202
-#define FAN_ARRAY_ITEM      pev_iuser1
-#define FAN_SEQ_SPIN        0
-#define SOUND_NAV           "buttons/blip1.wav"
-#define SOUND_REMOVE        "buttons/button10.wav"
-#define SOUND_ALERT         "buttons/bell1.wav"
+#define MAX_ENT                     32
+#define ADMIN_ACCESS                ADMIN_RCON
+#define PDATA_NEXT_ATTACK           83
+#define XO_CBASEPLAYER              5
+#define XO_CBASEPLAYERWEAPON        4
+#define FAN_KEY                     761202
+#define FAN_ARRAY_ITEM              pev_iuser1
+#define FAN_SEQ_SPIN                0
+#define SOUND_NAV                   "buttons/blip1.wav"
+#define SOUND_REMOVE                "buttons/button10.wav"
+#define SOUND_ALERT                 "buttons/bell1.wav"
 
 new const PLUGIN_VERSION[]          = "1.0"
 new const Float:DELAY_ON_CONNECT    = 1.0
-new const Float:DELAY_ON_LOAD       = 1.0
+new const Float:DELAY_ON_LOAD       = 2.0
 new const ERROR_FILE[]              = "AirFans_ERRORS.log"
 
 enum
@@ -71,12 +74,7 @@ enum
 enum
 {
     DTYPE_INT,
-    DTYPE_INT_RANGE,
     DTYPE_FLOAT,
-    DTYPE_FLOAT_RANGE,
-    DTYPE_INT_LIST,
-    DTYPE_FLOAT_LIST,
-    DTYPE_BOOL,
     DTYPE_FLAGS,
     DTYPE_ARRAY_STRING,
     DTYPE_ARRAY_SOUND,
@@ -87,17 +85,14 @@ enum
 
 enum
 {
-    FLAG_ACTIVE_DELAY       = (1 << 0),
-    FLAG_ACTIVE_DURATION    = (1 << 1),
-    FLAG_PLAYERS_ONLY       = (1 << 2),
+    FLAG_PLAYERS_ONLY       = (1 << 0),
 
-    FLAG_SHOW               = (1 << 3),
-    FLAG_GHOST              = (1 << 4),
-    FLAG_GROUND             = (1 << 5),
-    FLAG_ACTIVE             = (1 << 6),
-    FLAG_SOUND              = (1 << 7),
-    FLAG_PLAYING            = (1 << 8),
-    FLAG_PENDING            = (1 << 9)
+    FLAG_SHOW               = (1 << 1),
+    FLAG_GHOST              = (1 << 2),
+    FLAG_GROUND             = (1 << 3),
+    FLAG_ACTIVE             = (1 << 4),
+    FLAG_SOUND              = (1 << 5),
+    FLAG_PLAYING            = (1 << 6)
 }
 
 enum
@@ -134,11 +129,6 @@ enum _:MAIN_SETTINGS
 {
     SETTING_DEFAULT_FLAGS,
     SETTING_DEFAULT_TEAM,
-
-    Float:SETTING_DEFAULT_SPAWN_CHANCE,
-    Float:SETTING_DEFAULT_ACTIVE_DELAY[2],
-    Float:SETTING_DEFAULT_ACTIVE_DURATION[2],
-    Float:SETTING_DEFAULT_ACTIVE_COOLDOWN[2],
     Float:SETTING_DEFAULT_BASE_STRENGTH,
     Float:SETTING_DEFAULT_PUSH_STRENGTH,
     Float:SETTING_DEFAULT_PUSH_FREQ[2],
@@ -189,15 +179,9 @@ enum _:FAN
 
     Array:FAN_SOUND,
     FAN_SOUND_CURRENT[MAX_RESOURCE_PATH_LENGTH],
-    Float:FAN_SPAWN_CHANCE,
-    Float:FAN_ACTIVE_DELAY[2],
-    Float:FAN_ACTIVE_DURATION[2],
-    Float:FAN_ACTIVE_COOLDOWN[2],
     Float:FAN_PUSH_STRENGTH,
     Float:FAN_PUSH_FREQ[2],
 
-    Float:FAN_NEXT_ENABLE,
-    Float:FAN_NEXT_DISABLE,
     Float:FAN_NEXT_PUSH
 }
 
@@ -325,7 +309,7 @@ new Array:g_aFan,
     g_eSettings[MAIN_SETTINGS],
     g_ePlayerData[MAX_PLAYERS + 1][PLAYER_DATA],
     bool:g_bFileWasRead, g_iActivePlayers,
-    g_iFwdUpdateClientData, HamHook:g_iFwdSpawn, HamHook:g_iFwdPreThink, HamHook:g_iFwdKilled,
+    HamHook:g_iFwdPreThink, HamHook:g_iFwdKilled,
     g_iFan, g_iFanConfig,
     g_iMaxPlayers
 
@@ -344,8 +328,6 @@ public plugin_init()
     register_concmd("fan_reload",   "cmdReload", ADMIN_ACCESS, "-- Reloads the configuration file")
     register_dictionary("AirFans.txt")
 
-    g_iFwdUpdateClientData = register_forward(FM_UpdateClientData, "fwdUpdateClientData", 1)
-    g_iFwdSpawn = RegisterHam(Ham_Spawn, "info_target", "fwdSpawn", 1)
     g_iFwdPreThink = RegisterHam(Ham_Player_PreThink, "player", "fwdPreThink")
     g_iFwdKilled = RegisterHam(Ham_Killed, "player", "fwdKilled", 1)
     register_logevent("eventRoundStart", 2, "1=Round_Start")
@@ -402,48 +384,20 @@ public cmdReload(id, iLevel, iCmd)
 
 public eventRoundStart()
 {
-    if ( !g_iFan )
-        return PLUGIN_HANDLED
-
-    new eFan[FAN]
-    for ( new i = 0; i < g_iFan; i ++ )
-    {
-        ArrayGetArray(g_aFan, i, eFan)
-        if ( !(eFan[FAN_FLAGS] & FLAG_SHOW) )
-            continue
-
-        fanReset(eFan)
-        if ( eFan[FAN_SPAWN_CHANCE] >= random_float(0.0, 1.0) )
-        {
-            eFan[FAN_FLAGS] |= (FLAG_SHOW | FLAG_ACTIVE)
-
-            fanSetDelay(eFan)
-            fanSetState(eFan)
-        }
-
-        ArraySetArray(g_aFan, i, eFan)
-    }
-
-    return PLUGIN_HANDLED
+    fanReset()
 }
 
 ReadFile()
 {
-    new eFan[FAN]
     if ( g_bFileWasRead )
     {
         for ( new id = 1; id <= g_iMaxPlayers; id ++ )
             if ( is_user_connected(id))
                 UpdateData(id)
 
-        for ( new i = 0; i < g_iFan; i ++ )
-        {
-            ArrayGetArray(g_aFan, i, eFan)
-            ArrayDestroy(eFan[FAN_SOUND])
-        }
-
         ArrayClear(g_aFanConfig)
         ArrayClear(g_eSettings[SETTING_DEFAULT_SOUND])
+        g_iFanConfig = 0
     }
 
     new szFile[MAX_RESOURCE_PATH_LENGTH], iFile
@@ -458,7 +412,7 @@ ReadFile()
 
     new szData[MAX_FILE_CELL_SIZE],
         szKey[MAX_VALUE_LENGTH], szValue[MAX_VALUE_LENGTH],
-        iSection = SECTION_NONE, iLine, iPos
+        eFan[FAN], iSection = SECTION_NONE, iLine, iPos
 
     while( !feof(iFile) )
     {
@@ -492,13 +446,6 @@ ReadFile()
                         copy(eFan[FAN_NAME], charsmax(eFan[FAN_NAME]), szData)
                         eFan[FAN_FLAGS]               = g_eSettings[SETTING_DEFAULT_FLAGS]
                         eFan[FAN_TEAM]                = g_eSettings[SETTING_DEFAULT_TEAM]
-                        eFan[FAN_SPAWN_CHANCE]        = g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE]
-                        eFan[FAN_ACTIVE_DELAY][0]     = g_eSettings[SETTING_DEFAULT_ACTIVE_DELAY][0]
-                        eFan[FAN_ACTIVE_DELAY][1]     = g_eSettings[SETTING_DEFAULT_ACTIVE_DELAY][1]
-                        eFan[FAN_ACTIVE_DURATION][0]  = g_eSettings[SETTING_DEFAULT_ACTIVE_DURATION][0]
-                        eFan[FAN_ACTIVE_DURATION][1]  = g_eSettings[SETTING_DEFAULT_ACTIVE_DURATION][1]
-                        eFan[FAN_ACTIVE_COOLDOWN][0]  = g_eSettings[SETTING_DEFAULT_ACTIVE_COOLDOWN][0]
-                        eFan[FAN_ACTIVE_COOLDOWN][1]  = g_eSettings[SETTING_DEFAULT_ACTIVE_COOLDOWN][1]
                         eFan[FAN_PUSH_STRENGTH]       = g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH]
                         eFan[FAN_PUSH_FREQ][0]        = g_eSettings[SETTING_DEFAULT_PUSH_FREQ][0]
                         eFan[FAN_PUSH_FREQ][1]        = g_eSettings[SETTING_DEFAULT_PUSH_FREQ][1]
@@ -535,90 +482,74 @@ ReadFile()
                     case SECTION_MAIN_SETTINGS:
                     {
                         if ( equali(szKey, "SETTING_DEFAULT_FLAGS") )
-                            parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FLAGS], charsmax(g_eSettings[SETTING_DEFAULT_FLAGS]))
+                            parseSetting(DTYPE_FLAGS, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FLAGS], charsmax(g_eSettings[SETTING_DEFAULT_FLAGS]))
                         else if ( equali(szKey, "SETTING_DEFAULT_TEAM") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_TEAM], charsmax(g_eSettings[SETTING_DEFAULT_TEAM]))
-                        else if ( equali(szKey, "SETTING_DEFAULT_SPAWN_CHANCE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE], charsmax(g_eSettings[SETTING_DEFAULT_SPAWN_CHANCE]))
-                        else if ( equali(szKey, "SETTING_DEFAULT_ACTIVE_DELAY") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_ACTIVE_DELAY], charsmax(g_eSettings[SETTING_DEFAULT_ACTIVE_DELAY]))
-                        else if ( equali(szKey, "SETTING_DEFAULT_ACTIVE_DURATION") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_ACTIVE_DURATION], charsmax(g_eSettings[SETTING_DEFAULT_ACTIVE_DURATION]))
-                        else if ( equali(szKey, "SETTING_DEFAULT_ACTIVE_COOLDOWN") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_ACTIVE_COOLDOWN], charsmax(g_eSettings[SETTING_DEFAULT_ACTIVE_COOLDOWN]))
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_TEAM], charsmax(g_eSettings[SETTING_DEFAULT_TEAM]))
                         else if ( equali(szKey, "SETTING_DEFAULT_BASE_STRENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_BASE_STRENGTH], charsmax(g_eSettings[SETTING_DEFAULT_BASE_STRENGTH]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_BASE_STRENGTH], charsmax(g_eSettings[SETTING_DEFAULT_BASE_STRENGTH]))
                         else if ( equali(szKey, "SETTING_DEFAULT_PUSH_STRENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH], charsmax(g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH], charsmax(g_eSettings[SETTING_DEFAULT_PUSH_STRENGTH]))
                         else if ( equali(szKey, "SETTING_DEFAULT_PUSH_FREQ") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_PUSH_FREQ], charsmax(g_eSettings[SETTING_DEFAULT_PUSH_FREQ]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_PUSH_FREQ], charsmax(g_eSettings[SETTING_DEFAULT_PUSH_FREQ]))
                         else if ( equali(szKey, "SETTING_DEFAULT_LENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LENGTH], charsmax(g_eSettings[SETTING_DEFAULT_LENGTH]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_LENGTH], charsmax(g_eSettings[SETTING_DEFAULT_LENGTH]))
                         else if ( equali(szKey, "SETTING_DEFAULT_FRAMERATE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FRAMERATE], charsmax(g_eSettings[SETTING_DEFAULT_FRAMERATE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_FRAMERATE], charsmax(g_eSettings[SETTING_DEFAULT_FRAMERATE]))
                         else if ( equali(szKey, "SETTING_DEFAULT_SOUND") )
-                            parseSetting(DTYPE_ARRAY_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SOUND], charsmax(g_eSettings[SETTING_DEFAULT_SOUND]))
+                            parseSetting(DTYPE_ARRAY_SOUND, szValue, charsmax(szValue), g_eSettings[SETTING_DEFAULT_SOUND], charsmax(g_eSettings[SETTING_DEFAULT_SOUND]))
                         else if ( equali(szKey, "SETTING_MODEL_SMALL") )
-                            parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_SMALL], charsmax(g_eSettings[SETTING_MODEL_SMALL]))
+                            parseSetting(DTYPE_STRING_MODEL, szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_SMALL], charsmax(g_eSettings[SETTING_MODEL_SMALL]))
                         else if ( equali(szKey, "SETTING_MODEL_MEDIUM") )
-                            parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_MEDIUM], charsmax(g_eSettings[SETTING_MODEL_MEDIUM]))
+                            parseSetting(DTYPE_STRING_MODEL, szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_MEDIUM], charsmax(g_eSettings[SETTING_MODEL_MEDIUM]))
                         else if ( equali(szKey, "SETTING_MODEL_LARGE") )
-                            parseSetting(DTYPE_STRING_MODEL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_LARGE], charsmax(g_eSettings[SETTING_MODEL_LARGE]))
+                            parseSetting(DTYPE_STRING_MODEL, szValue, charsmax(szValue), g_eSettings[SETTING_MODEL_LARGE], charsmax(g_eSettings[SETTING_MODEL_LARGE]))
                         else if ( equali(szKey, "SETTING_MINS_SMALL") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_SMALL], charsmax(g_eSettings[SETTING_MINS_SMALL]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MINS_SMALL], charsmax(g_eSettings[SETTING_MINS_SMALL]))
                         else if ( equali(szKey, "SETTING_MAXS_SMALL") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_SMALL], charsmax(g_eSettings[SETTING_MAXS_SMALL]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_SMALL], charsmax(g_eSettings[SETTING_MAXS_SMALL]))
                         else if ( equali(szKey, "SETTING_MINS_MEDIUM") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_MEDIUM], charsmax(g_eSettings[SETTING_MINS_MEDIUM]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MINS_MEDIUM], charsmax(g_eSettings[SETTING_MINS_MEDIUM]))
                         else if ( equali(szKey, "SETTING_MAXS_MEDIUM") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_MEDIUM], charsmax(g_eSettings[SETTING_MAXS_MEDIUM]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_MEDIUM], charsmax(g_eSettings[SETTING_MAXS_MEDIUM]))
                         else if ( equali(szKey, "SETTING_MINS_LARGE") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MINS_LARGE], charsmax(g_eSettings[SETTING_MINS_LARGE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MINS_LARGE], charsmax(g_eSettings[SETTING_MINS_LARGE]))
                         else if ( equali(szKey, "SETTING_MAXS_LARGE") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_LARGE], charsmax(g_eSettings[SETTING_MAXS_LARGE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_MAXS_LARGE], charsmax(g_eSettings[SETTING_MAXS_LARGE]))
                         else if ( equali(szKey, "SETTING_TRIGGER_SIZE") )
-                            parseSetting(DTYPE_FLOAT_LIST, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_TRIGGER_SIZE], charsmax(g_eSettings[SETTING_TRIGGER_SIZE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_TRIGGER_SIZE], charsmax(g_eSettings[SETTING_TRIGGER_SIZE]))
                         else if ( equali(szKey, "SETTING_MAX_TARGETS") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_MAX_TARGETS], charsmax(g_eSettings[SETTING_MAX_TARGETS]))
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_MAX_TARGETS], charsmax(g_eSettings[SETTING_MAX_TARGETS]))
                         else if ( equali(szKey, "SETTING_FAN_LOAD") )
-                            parseSetting(DTYPE_BOOL, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FAN_LOAD], charsmax(g_eSettings[SETTING_FAN_LOAD]))
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_FAN_LOAD], charsmax(g_eSettings[SETTING_FAN_LOAD]))
                         else if ( equali(szKey, "SETTING_FAN_CHECK") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FAN_CHECK], charsmax(g_eSettings[SETTING_FAN_CHECK]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_FAN_CHECK], charsmax(g_eSettings[SETTING_FAN_CHECK]))
                         else if ( equali(szKey, "SETTING_FAN_TASK") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_FAN_TASK], charsmax(g_eSettings[SETTING_FAN_TASK]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_FAN_TASK], charsmax(g_eSettings[SETTING_FAN_TASK]))
                         else if ( equali(szKey, "SETTING_OFFSET_BASE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET_BASE], charsmax(g_eSettings[SETTING_OFFSET_BASE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET_BASE], charsmax(g_eSettings[SETTING_OFFSET_BASE]))
                         else if ( equali(szKey, "SETTING_OFFSET") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET], charsmax(g_eSettings[SETTING_OFFSET]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET], charsmax(g_eSettings[SETTING_OFFSET]))
                         else if ( equali(szKey, "SETTING_OFFSET_STEP") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET_STEP], charsmax(g_eSettings[SETTING_OFFSET_STEP]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_OFFSET_STEP], charsmax(g_eSettings[SETTING_OFFSET_STEP]))
                         else if ( equali(szKey, "SETTING_GHOST_ALPHA") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_GHOST_ALPHA], charsmax(g_eSettings[SETTING_GHOST_ALPHA]))
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), g_eSettings[SETTING_GHOST_ALPHA], charsmax(g_eSettings[SETTING_GHOST_ALPHA]))
                         else if ( equali(szKey, "SETTING_ROTATION_STEP") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), g_eSettings[SETTING_ROTATION_STEP], charsmax(g_eSettings[SETTING_ROTATION_STEP]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), g_eSettings[SETTING_ROTATION_STEP], charsmax(g_eSettings[SETTING_ROTATION_STEP]))
                     }
                     case SECTION_FAN:
                     {
                         if ( equali(szKey, "FAN_FLAGS") )
-                            parseSetting(DTYPE_FLAGS, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_FLAGS], charsmax(eFan[FAN_FLAGS]))
+                            parseSetting(DTYPE_FLAGS, szValue, charsmax(szValue), eFan[FAN_FLAGS], charsmax(eFan[FAN_FLAGS]))
                         else if ( equali(szKey, "FAN_TEAM") )
-                            parseSetting(DTYPE_INT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_TEAM], charsmax(eFan[FAN_TEAM]))
-                        else if ( equali(szKey, "FAN_SPAWN_CHANCE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SPAWN_CHANCE], charsmax(eFan[FAN_SPAWN_CHANCE]))
-                        else if ( equali(szKey, "FAN_ACTIVE_DELAY") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DELAY], charsmax(eFan[FAN_ACTIVE_DELAY]))
-                        else if ( equali(szKey, "FAN_ACTIVE_DURATION") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_DURATION], charsmax(eFan[FAN_ACTIVE_DURATION]))
-                        else if ( equali(szKey, "FAN_ACTIVE_COOLDOWN") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_ACTIVE_COOLDOWN], charsmax(eFan[FAN_ACTIVE_COOLDOWN]))
+                            parseSetting(DTYPE_INT, szValue, charsmax(szValue), eFan[FAN_TEAM], charsmax(eFan[FAN_TEAM]))
                         else if ( equali(szKey, "FAN_PUSH_STRENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_STRENGTH], charsmax(eFan[FAN_PUSH_STRENGTH]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), eFan[FAN_PUSH_STRENGTH], charsmax(eFan[FAN_PUSH_STRENGTH]))
                         else if ( equali(szKey, "FAN_PUSH_FREQ") )
-                            parseSetting(DTYPE_FLOAT_RANGE, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_PUSH_FREQ], charsmax(eFan[FAN_PUSH_FREQ]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), eFan[FAN_PUSH_FREQ], charsmax(eFan[FAN_PUSH_FREQ]))
                         else if ( equali(szKey, "FAN_LENGTH") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_LENGTH], charsmax(eFan[FAN_LENGTH]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), eFan[FAN_LENGTH], charsmax(eFan[FAN_LENGTH]))
                         else if ( equali(szKey, "FAN_FRAMERATE") )
-                            parseSetting(DTYPE_FLOAT, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_FRAMERATE], charsmax(eFan[FAN_FRAMERATE]))
+                            parseSetting(DTYPE_FLOAT, szValue, charsmax(szValue), eFan[FAN_FRAMERATE], charsmax(eFan[FAN_FRAMERATE]))
                         else if ( equali(szKey, "FAN_SOUND") )
                         {
                             if ( !(eFan[FAN_FLAGS] & FLAG_SOUND) )
@@ -627,7 +558,7 @@ ReadFile()
                                 eFan[FAN_FLAGS] |= FLAG_SOUND
                             }
 
-                            parseSetting(DTYPE_ARRAY_SOUND, szKey, charsmax(szKey), szValue, charsmax(szValue), eFan[FAN_SOUND], charsmax(eFan[FAN_SOUND]))
+                            parseSetting(DTYPE_ARRAY_SOUND, szValue, charsmax(szValue), eFan[FAN_SOUND], charsmax(eFan[FAN_SOUND]))
                         }
                     }
                 }
@@ -682,11 +613,6 @@ stock fanTerminate()
     {
         ArrayGetArray(g_aFan, i, eFan)
         eFan[FAN_FLAGS] &= ~FLAG_PLAYING
-        if ( !(eFan[FAN_FLAGS] & FLAG_PENDING) )
-            continue
-
-        eFan[FAN_FLAGS] |= FLAG_ACTIVE
-        eFan[FAN_FLAGS] &= ~FLAG_PENDING
         ArraySetArray(g_aFan, i, eFan)
     }
 }
@@ -1341,13 +1267,13 @@ public menuHandlerRotate(id, menu, item)
         {
             fanTrace(eFan, id)
             DisableAction(id)
+            set_pdata_float(id, PDATA_NEXT_ATTACK, 0.0, XO_CBASEPLAYER, XO_CBASEPLAYER)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
 
             eFan[FAN_FLAGS] |= (FLAG_SHOW | FLAG_ACTIVE)
             eFan[FAN_FLAGS] &= ~FLAG_GHOST
             eFan[FAN_ANGLES][0] = -eFan[FAN_ANGLES][0]
             fanSetSize(eFan)
-            fanSetDelay(eFan)
             fanSetState(eFan)
             ArraySetArray(g_aFan, iItem, eFan)
 
@@ -1360,6 +1286,7 @@ public menuHandlerRotate(id, menu, item)
             fanKill(eFan[FAN_ID])
             fanRemove(iItem)
             DisableAction(id)
+            set_pdata_float(id, PDATA_NEXT_ATTACK, 0.0, XO_CBASEPLAYER, XO_CBASEPLAYER)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
 
             fanSound(id, SOUND_MENU_NAV)
@@ -1370,6 +1297,7 @@ public menuHandlerRotate(id, menu, item)
             fanKill(eFan[FAN_ID])
             fanRemove(iItem)
             DisableAction(id)
+            set_pdata_float(id, PDATA_NEXT_ATTACK, 0.0, XO_CBASEPLAYER, XO_CBASEPLAYER)
             g_ePlayerData[id][PDATA_FAN_GHOST] = 0
         }
     }
@@ -1380,13 +1308,12 @@ public menuHandlerRotate(id, menu, item)
 
 public fanTask()
 {
-    new eFan[FAN], bool:bModified, Float:fCurrentTime
+    new eFan[FAN], Float:fCurrentTime
     fCurrentTime = get_gametime()
 
     for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
-        bModified = false
 
         if ( eFan[FAN_FLAGS] & FLAG_SHOW )
         {
@@ -1396,39 +1323,10 @@ public fanTask()
                 {
                     fanAir(eFan)
                     eFan[FAN_NEXT_PUSH] = fCurrentTime + random_float(eFan[FAN_PUSH_FREQ][0], eFan[FAN_PUSH_FREQ][1])
-                }
-
-                if ( eFan[FAN_NEXT_DISABLE] > 0.0
-                && fCurrentTime >= eFan[FAN_NEXT_DISABLE] )
-                {
-                    eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
-                    eFan[FAN_FLAGS] |= FLAG_PENDING
-                    eFan[FAN_NEXT_DISABLE] = 0.0
-                    eFan[FAN_NEXT_ENABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_COOLDOWN][0], eFan[FAN_ACTIVE_COOLDOWN][1])
-
-                    fanSetState(eFan)
-                    bModified = true
-                }
-            }
-            else
-            {
-                if ( eFan[FAN_NEXT_ENABLE] > 0.0
-                && fCurrentTime >= eFan[FAN_NEXT_ENABLE] )
-                {
-                    eFan[FAN_FLAGS] |= FLAG_ACTIVE
-                    eFan[FAN_FLAGS] &= ~FLAG_PENDING
-                    eFan[FAN_NEXT_ENABLE] = 0.0
-                    if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DURATION )
-                        eFan[FAN_NEXT_DISABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DURATION][0], eFan[FAN_ACTIVE_DURATION][1])
-
-                    fanSetState(eFan)
-                    bModified = true
+                    ArraySetArray(g_aFan, i, eFan)
                 }
             }
         }
-
-        if ( bModified )
-            ArraySetArray(g_aFan, i, eFan)
     }
 }
 
@@ -1457,7 +1355,10 @@ stock fanCreate(id, iItem)
     set_pev(iEnt, pev_classname, g_szCN)
     set_pev(iEnt, pev_impulse, FAN_KEY)
     set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
+
     dllfunc(DLLFunc_Spawn, iEnt)
+    set_pev(iEnt, pev_solid, SOLID_NOT)
+    set_pev(iEnt, pev_movetype, MOVETYPE_FLY)
 
     if ( id )
     {
@@ -1626,7 +1527,6 @@ stock loadDataFan(iItem, iFlags, iSize, Float:fOrigin[3], Float:fAngles[3], iCou
 
     fanSetBox(eFan)
     fanSetSize(eFan)
-    fanSetDelay(eFan)
     fanSetState(eFan)
     ArraySetArray(g_aFan, iCount, eFan)
 }
@@ -1645,28 +1545,6 @@ public fanGodMode(id)
 
     fanSound(id, SOUND_MENU_NAV)
     fanMenu(id, MENU_ROOT)
-}
-
-public fwdUpdateClientData(id, iSendWeapons, iHandle)
-{
-    if ( g_ePlayerData[id][PDATA_FAN_GHOST] )
-    {
-        set_cd(iHandle, CD_WeaponAnim, 0)
-        set_cd(iHandle, CD_flNextAttack, get_gametime() + 0.1)
-    }
-
-    return FMRES_IGNORED
-}
-
-public fwdSpawn(iEnt)
-{
-    if ( !isFan(iEnt) )
-        return HAM_IGNORED
-
-    set_pev(iEnt, pev_solid, SOLID_NOT)
-    set_pev(iEnt, pev_movetype, MOVETYPE_FLY)
-
-    return HAM_IGNORED
 }
 
 public fwdPreThink(id)
@@ -1697,6 +1575,7 @@ public fwdPreThink(id)
             }
         }
 
+        set_pdata_float(id, PDATA_NEXT_ATTACK, fCurrentTime + 0.1, XO_CBASEPLAYER, XO_CBASEPLAYER)
         iButton &= ~(IN_ATTACK | IN_ATTACK2)
         set_pev(id, pev_button, iButton)
 
@@ -1915,28 +1794,6 @@ stock fanLength(eFan[FAN])
     get_tr2(0, TR_vecEndPos, eFan[FAN_ORIGIN_END])
 }
 
-stock fanSetDelay(eFan[FAN])
-{
-    if ( eFan[FAN_FLAGS] & FLAG_ACTIVE )
-    {
-        new Float:fCurrentTime
-        fCurrentTime = get_gametime()
-
-        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DELAY )
-        {
-            eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
-            eFan[FAN_NEXT_ENABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DELAY][0], eFan[FAN_ACTIVE_DELAY][1])
-
-            fanSetState(eFan)
-        }
-        else
-        {
-            if ( eFan[FAN_FLAGS] & FLAG_ACTIVE_DURATION )
-                eFan[FAN_NEXT_DISABLE] = fCurrentTime + random_float(eFan[FAN_ACTIVE_DURATION][0], eFan[FAN_ACTIVE_DURATION][1])
-        }
-    }
-}
-
 stock fanSetState(eFan[FAN])
 {
     if ( eFan[FAN_FLAGS] & FLAG_SHOW )
@@ -1991,7 +1848,7 @@ stock fanAir(eFan[FAN])
             || pev(iEnt, pev_movetype) == MOVETYPE_NONE
             || pev(iEnt, pev_movetype) == MOVETYPE_FOLLOW
             || (eFan[FAN_FLAGS] & FLAG_PLAYERS_ONLY && !is_user_alive(iEnt))
-            || (is_user_alive(iEnt) && !(CsTeams:eFan[FAN_TEAM] & cs_get_user_team(iEnt)))  )
+            || (is_user_alive(iEnt) && !(CsTeams:eFan[FAN_TEAM] & cs_get_user_team(iEnt))) )
                 continue
 
             pev(iEnt, pev_origin, fOrigin)
@@ -2065,6 +1922,17 @@ stock fanSelect(eFan[FAN], iAction)
     set_ent_rendering(eFan[FAN_ID], iRenderFx, iRenderColor[0], iRenderColor[1], iRenderColor[2], iRender, iRenderAmt)
 }
 
+stock fanReset()
+{
+    new eFan[FAN]
+    for ( new i = 0; i < g_iFan; i ++ )
+    {
+        ArrayGetArray(g_aFan, i, eFan)
+        eFan[FAN_NEXT_PUSH] = 0.0
+        ArraySetArray(g_aFan, i, eFan)
+    }
+}
+
 stock fanSound(iEnt, iSound, bool:bPlayer = true)
 {
     new szSample[64]
@@ -2081,16 +1949,6 @@ stock fanSound(iEnt, iSound, bool:bPlayer = true)
         engfunc(EngFunc_EmitSound, iEnt, CHAN_ITEM, szSample, VOL_NORM, ATTN_NORM, 0, PITCH_NORM)
 }
 
-stock fanReset(eFan[FAN])
-{
-    eFan[FAN_FLAGS] &= ~(FLAG_SHOW | FLAG_ACTIVE)
-    eFan[FAN_NEXT_ENABLE] = 0.0
-    eFan[FAN_NEXT_DISABLE] = 0.0
-    eFan[FAN_NEXT_PUSH] = 0.0
-
-    fanSetState(eFan)
-}
-
 stock fanGet(eFan[FAN], iEnt)
 {
     new iItem
@@ -2104,7 +1962,7 @@ stock fanGet(eFan[FAN], iEnt)
 
 stock bool:isFan(iEnt)
 {
-    return pev(iEnt, pev_impulse) == FAN_KEY
+    return pev_valid(iEnt) && pev(iEnt, pev_impulse) == FAN_KEY
 }
 
 stock fanKill(iEnt)
@@ -2113,31 +1971,11 @@ stock fanKill(iEnt)
         set_pev(iEnt, pev_flags, pev(iEnt, pev_flags) | FL_KILLME)
 }
 
-stock parseSetting(iType, szKey[], iKeyLen, szValue[], iValueLen, any:aOutput[], iOutputLength)
+stock parseSetting(iType, szValue[], iValueLen, any:aOutput[], iOutputLength)
 {
     switch ( iType )
     {
         case DTYPE_INT:
-        {
-            aOutput[0] = str_to_num(szValue)
-        }
-        case DTYPE_INT_RANGE:
-        {
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            aOutput[0] = str_to_num(szKey)
-            aOutput[1] = str_to_num(szValue)
-        }
-        case DTYPE_FLOAT:
-        {
-            aOutput[0] = str_to_float(szValue)
-        }
-        case DTYPE_FLOAT_RANGE:
-        {
-            strtok(szValue, szKey, iKeyLen, szValue, iValueLen, ' ')
-            aOutput[0] = str_to_float(szKey)
-            aOutput[1] = str_to_float(szValue)
-        }
-        case DTYPE_INT_LIST:
         {
             new szTok[MAX_VALUE_LENGTH], szTmp[MAX_VALUE_LENGTH], iCounter
             copy(szTmp, charsmax(szTmp), szValue)
@@ -2152,7 +1990,7 @@ stock parseSetting(iType, szKey[], iKeyLen, szValue[], iValueLen, any:aOutput[],
                 trim(szTok)
             }
         }
-        case DTYPE_FLOAT_LIST:
+        case DTYPE_FLOAT:
         {
             new szTok[MAX_VALUE_LENGTH], szTmp[MAX_VALUE_LENGTH], iCounter
             copy(szTmp, charsmax(szTmp), szValue)
@@ -2166,10 +2004,6 @@ stock parseSetting(iType, szKey[], iKeyLen, szValue[], iValueLen, any:aOutput[],
                 strtok(szTmp, szTok, charsmax(szTok), szTmp, charsmax(szTmp), ' ')
                 trim(szTok)
             }
-        }
-        case DTYPE_BOOL:
-        {
-            aOutput[0] = bool:str_to_num(szValue)
         }
         case DTYPE_FLAGS:
         {
@@ -2246,16 +2080,12 @@ stock DisableAction(id)
 
 stock EnableForward()
 {
-    g_iFwdUpdateClientData = register_forward(FM_UpdateClientData, "fwdUpdateClientData", 1)
-    EnableHamForward(g_iFwdSpawn)
     EnableHamForward(g_iFwdPreThink)
     EnableHamForward(g_iFwdKilled)
 }
 
 stock DisableForward()
 {
-    unregister_forward(FM_UpdateClientData, g_iFwdUpdateClientData, 1)
-    DisableHamForward(g_iFwdSpawn)
     DisableHamForward(g_iFwdPreThink)
     DisableHamForward(g_iFwdKilled)
 }
@@ -2267,5 +2097,3 @@ stock LogConfigError(const iLine, const szText[], any:...)
 
     log_to_file(ERROR_FILE, "^nLine %d: %s", iLine, szError)
 }
-
-
