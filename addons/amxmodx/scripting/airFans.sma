@@ -1951,6 +1951,9 @@ stock fanSound(iEnt, iSound, bool:bPlayer = true)
 
 stock fanGet(eFan[FAN], iEnt)
 {
+    if ( !isFan(iEnt) )
+        return -1
+
     new iItem
     iItem = pev(iEnt, FAN_ARRAY_ITEM)
     if ( iItem < 0 || iItem >= g_iFan )
