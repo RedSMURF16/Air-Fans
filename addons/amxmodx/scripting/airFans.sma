@@ -983,6 +983,8 @@ public menuHandlerShow(id, menu, item)
         case SHOW_CURRENT:
         {
             eFan[FAN_FLAGS] ^= FLAG_SHOW
+            if ( !(eFan[FAN_FLAGS] & FLAG_SHOW) )
+                eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
             fanSetState(eFan)
 
             client_print_color(id, id, "%L %L", id, "FAN_CHAT_TAG", id, "FAN_CHAT_SHOW_CURRENT",
@@ -1013,6 +1015,7 @@ public menuHandlerShow(id, menu, item)
             {
                 ArrayGetArray(g_aFan, i, eFan)
                 eFan[FAN_FLAGS] &= ~FLAG_SHOW
+                eFan[FAN_FLAGS] &= ~FLAG_ACTIVE
                 fanSetState(eFan)
 
                 ArraySetArray(g_aFan, i, eFan)
@@ -1314,17 +1317,13 @@ public fanTask()
     for ( new i = 0; i < g_iFan; i ++ )
     {
         ArrayGetArray(g_aFan, i, eFan)
-
-        if ( eFan[FAN_FLAGS] & FLAG_SHOW )
+        if ( eFan[FAN_FLAGS] & FLAG_ACTIVE )
         {
-            if ( eFan[FAN_FLAGS] & FLAG_ACTIVE )
+            if ( fCurrentTime >= eFan[FAN_NEXT_PUSH] )
             {
-                if ( fCurrentTime >= eFan[FAN_NEXT_PUSH] )
-                {
-                    fanAir(eFan)
-                    eFan[FAN_NEXT_PUSH] = fCurrentTime + random_float(eFan[FAN_PUSH_FREQ][0], eFan[FAN_PUSH_FREQ][1])
-                    ArraySetArray(g_aFan, i, eFan)
-                }
+                fanAir(eFan)
+                eFan[FAN_NEXT_PUSH] = fCurrentTime + random_float(eFan[FAN_PUSH_FREQ][0], eFan[FAN_PUSH_FREQ][1])
+                ArraySetArray(g_aFan, i, eFan)
             }
         }
     }
