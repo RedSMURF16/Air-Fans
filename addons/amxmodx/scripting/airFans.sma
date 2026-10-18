@@ -60,7 +60,6 @@
 #define SOUND_ALERT                 "buttons/bell1.wav"
 
 new const PLUGIN_VERSION[]          = "1.0"
-new const Float:DELAY_ON_CONNECT    = 1.0
 new const Float:DELAY_ON_LOAD       = 2.0
 new const ERROR_FILE[]              = "AirFans_ERRORS.log"
 
@@ -310,8 +309,7 @@ new Array:g_aFan,
     g_ePlayerData[MAX_PLAYERS + 1][PLAYER_DATA],
     bool:g_bFileWasRead, g_iActivePlayers,
     HamHook:g_iFwdPreThink, HamHook:g_iFwdKilled,
-    g_iFan, g_iFanConfig,
-    g_iMaxPlayers
+    g_iFan, g_iFanConfig
 
 new const g_iColorActive[] = { 0, 255, 0 }
 new const g_iColorInactive[] = { 255, 0, 0 }
@@ -321,7 +319,7 @@ new g_szRotateSize[][] = {"FAN_ROTATE_SMALL", "FAN_ROTATE_MEDIUM", "FAN_ROTATE_L
 public plugin_init()
 {
     register_plugin("Air Fans", PLUGIN_VERSION, "RedSMURF")
-    register_cvar("AirFans", PLUGIN_VERSION, ADMIN_ACCESS)
+    register_cvar("RedSMURF_AirFans", PLUGIN_VERSION, ADMIN_ACCESS)
 
     register_clcmd("say /af",       "cmdMenu", ADMIN_ACCESS, "-- Opens the Air Fans menu.")
     register_clcmd("say_team /af",  "cmdMenu", ADMIN_ACCESS, "-- Opens the Air Fans menu.")
@@ -334,7 +332,6 @@ public plugin_init()
     DisableForward()
 
     fanInit()
-    g_iMaxPlayers = get_maxplayers()
 }
 
 public plugin_precache()
@@ -391,10 +388,6 @@ ReadFile()
 {
     if ( g_bFileWasRead )
     {
-        for ( new id = 1; id <= g_iMaxPlayers; id ++ )
-            if ( is_user_connected(id))
-                UpdateData(id)
-
         ArrayClear(g_aFanConfig)
         ArrayClear(g_eSettings[SETTING_DEFAULT_SOUND])
         g_iFanConfig = 0
@@ -575,11 +568,6 @@ ReadFile()
     fclose(iFile)
 }
 
-public client_authorized(id)
-{
-    set_task(DELAY_ON_CONNECT, "UpdateData", id)
-}
-
 public client_disconnected(id)
 {
     new eFan[FAN], iItem
@@ -593,11 +581,6 @@ public client_disconnected(id)
     DisableAction(id)
     g_ePlayerData[id][PDATA_FAN_GHOST]  = 0
     g_ePlayerData[id][PDATA_FAN_MENU]   = 0
-}
-
-public UpdateData(id)
-{
-    g_ePlayerData[id][PDATA_OFFSET] = g_eSettings[SETTING_OFFSET_BASE]
 }
 
 public fanInit()
@@ -1354,7 +1337,6 @@ stock fanCreate(id, iItem)
     set_pev(iEnt, pev_classname, g_szCN)
     set_pev(iEnt, pev_impulse, FAN_KEY)
     set_pev(iEnt, FAN_ARRAY_ITEM, g_iFan)
-
     dllfunc(DLLFunc_Spawn, iEnt)
     set_pev(iEnt, pev_solid, SOLID_NOT)
     set_pev(iEnt, pev_movetype, MOVETYPE_FLY)
