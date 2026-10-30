@@ -20,7 +20,6 @@
 
 #include <amxmodx>
 #include <amxmisc>
-#include <cstrike>
 #include <fakemeta>
 #include <hamsandwich>
 #include <xs>
@@ -1301,7 +1300,7 @@ public fanTask()
 
 stock fanCreate(id, iItem)
 {
-    new iEnt = cs_create_entity("info_target")
+    new iEnt = engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, "info_target"))
     if ( !pev_valid(iEnt) )
         return
 
@@ -1816,7 +1815,7 @@ stock fanAir(eFan[FAN])
             || pev(iEnt, pev_movetype) == MOVETYPE_NONE
             || pev(iEnt, pev_movetype) == MOVETYPE_FOLLOW
             || (eFan[FAN_FLAGS] & FLAG_PLAYERS_ONLY && !is_user_alive(iEnt))
-            || (is_user_alive(iEnt) && !(CsTeams:eFan[FAN_TEAM] & cs_get_user_team(iEnt))) )
+            || (is_user_alive(iEnt) && !(eFan[FAN_TEAM] & get_user_team(iEnt))) )
                 continue
 
             pev(iEnt, pev_origin, fOrigin)
