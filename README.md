@@ -1,6 +1,10 @@
 <h1 align="center">Air Fans</h1>
 
-## Description
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=WiIfoOwYL3E"><img src="https://img.youtube.com/vi/WiIfoOwYL3E/maxresdefault.jpg" alt="Watch on YouTube" width="600"></a>
+</p>
+
+## 📝 Description
 This plugin adds a fully dynamic air fan system to Counter-Strike 1.6.
 Fans can be placed, managed and configured during gameplay with runtime control over visibility, team access, activation states and pushing strength.
 - Create and remove air fans during gameplay via an in-game menu
@@ -12,12 +16,12 @@ Fans can be placed, managed and configured during gameplay with runtime control 
 - Custom fan sounds with speed/pitch based on fan strength
 - Custom setups are saved per map and automatically loaded on every map start
 
-## Commands
+## 💬 Commands
 - `say /af` - Opens the Air Fan menu.
 - `say_team /af` - Opens the Air Fan menu.
 - `af_reload` - Reloads the configuration file.
 
-## Configuration
+## ⚙️ Configuration
 ```ini
 # Per-fan settings (defined under each [Fan Name] section):
 # FAN_FLAGS           = a - Active Delay, b - Active Duration, c - Players Only
@@ -31,9 +35,7 @@ Fans can be placed, managed and configured during gameplay with runtime control 
 # FAN_LENGTH          = Fan's maximum push distance
 ```
 
-## Changelog
+## 🔄 Changelog
 ```text
 * v1.0: Initial release.
 ```
-
-[![Watch on YouTube](https://img.shields.io/badge/YouTube-Watch%20Preview-red?logo=youtube)](https://www.youtube.com/watch?v=WiIfoOwYL3E)
