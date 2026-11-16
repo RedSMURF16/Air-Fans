@@ -16,6 +16,10 @@ Fans can be placed, managed and configured during gameplay with runtime control 
 - Custom fan sounds with speed/pitch based on fan strength
 - Custom setups are saved per map and automatically loaded on every map start
 
+## 📋 Requirements
+- ReGameDLL
+- AMX Mod X 1.10+
+
 ## 💬 Commands
 - `say /af` - Opens the Air Fan menu.
 - `say_team /af` - Opens the Air Fan menu.
