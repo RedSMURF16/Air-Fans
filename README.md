@@ -1,7 +1,7 @@
 <h1 align="center">Air Fans</h1>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=WiIfoOwYL3E"><img src="https://img.youtube.com/vi/WiIfoOwYL3E/maxresdefault.jpg" alt="Watch on YouTube" width="600"></a>
+  <img src="images/demo.gif" alt="Air Fans">
 </p>
 
 ## 📝 Description
